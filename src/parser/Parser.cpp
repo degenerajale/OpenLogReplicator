@@ -770,8 +770,10 @@ namespace OpenLogReplicator {
     }
 
     void Parser::appendToTransactionBegin(RedoLogRecord* redoLogRecord1) {
-        // Skip other PDB vectors
-        if (metadata->dbId > 0 && redoLogRecord1->dbId != metadata->dbId)
+        // Skip other PDB vectors. Only filter when the record actually carries a PDB id: the
+        // 5.2 pdb field is optional, and a record without it leaves dbId at the clear()-zeroed
+        // 0. Dropping those would silently discard transactions rather than filter them.
+        if (metadata->dbId > 0 && redoLogRecord1->dbId != 0 && redoLogRecord1->dbId != metadata->dbId)
             return;
 
         // Skip SQN cleanup
