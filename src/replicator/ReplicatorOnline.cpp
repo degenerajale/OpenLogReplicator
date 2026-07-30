@@ -172,7 +172,10 @@ namespace OpenLogReplicator {
                     stmt2.defineString(2, conNameChar.data(), conNameChar.size());
                     std::array < char, 81 > conContext{};
                     stmt2.defineString(3, conContext.data(), conContext.size());
-                    typeDbId dbId;
+                    // V$PDBS has no row for CDB$ROOT (con_id 1) or a non-CDB (con_id 0), so the
+                    // query NVLs the result to 0. Initialize anyway: a NULL fetch raises ORA-01405,
+                    // which checkErr deliberately ignores, leaving the variable untouched.
+                    typeDbId dbId{0};
                     stmt2.defineUInt(4, dbId);
 
                     if (stmt2.executeQuery() != 0) {

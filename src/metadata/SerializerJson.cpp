@@ -647,7 +647,11 @@ namespace OpenLogReplicator {
                     if (bigEndian == 1)
                         metadata->ctx->setBigEndian();
                     metadata->context = Ctx::getJsonFieldS(fileName, DbTable::VCONTEXT_LENGTH, document, "context");
-                    metadata->dbId = Ctx::getJsonFieldU32(fileName, document, "db-id");
+                    // Checkpoints written before "db-id" was introduced do not carry the field
+                    if (document.HasMember("db-id"))
+                        metadata->dbId = Ctx::getJsonFieldU32(fileName, document, "db-id");
+                    else
+                        metadata->dbId = 0;
                     metadata->conId = Ctx::getJsonFieldI16(fileName, document, "con-id");
                     metadata->conName = Ctx::getJsonFieldS(fileName, DbTable::VCONTEXT_LENGTH, document, "con-name");
                     if (document.HasMember("db-timezone"))
