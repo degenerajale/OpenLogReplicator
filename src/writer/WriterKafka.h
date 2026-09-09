@@ -23,16 +23,20 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <librdkafka/rdkafka.h>
 
 #include <map>
+#include <vector>
 #include "Writer.h"
 
 namespace OpenLogReplicator {
+    class TopicMap;
+
     class WriterKafka final : public Writer {
     protected:
         std::string topic;
+        const TopicMap* topicMap;
         char errStr[512]{};
         std::map<std::string, std::string> properties;
         rd_kafka_t* rk{nullptr};
-        rd_kafka_topic_t* rkt{nullptr};
+        std::vector<rd_kafka_topic_t*> rkts;
         rd_kafka_conf_t* conf{nullptr};
         static void dr_msg_cb(rd_kafka_t* rkCb, const rd_kafka_message_t* rkMessage, void* opaque);
         static void error_cb(rd_kafka_t* rkCb, int err, const char* reason, void* opaque);
@@ -45,7 +49,8 @@ namespace OpenLogReplicator {
     public:
         static constexpr uint64_t MAX_KAFKA_MESSAGE_MB = 953;
 
-        WriterKafka(Ctx* newCtx, std::string newAlias, std::string newDatabase, Builder* newBuilder, Metadata* newMetadata, std::string newTopic);
+        WriterKafka(Ctx* newCtx, std::string newAlias, std::string newDatabase, Builder* newBuilder, Metadata* newMetadata, std::string newTopic,
+                    const TopicMap* newTopicMap);
         ~WriterKafka() override;
 
         void addProperty(std::string key, std::string value);

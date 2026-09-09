@@ -129,7 +129,7 @@ namespace OpenLogReplicator {
             if (unlikely(redoResponsePB == nullptr))
                 throw RuntimeException(50018, "PB insert processing failed, a message is missing");
         } else {
-            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE);
+            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE, topicIdOf(table));
             createResponse();
             appendHeader(scn, timestamp, true, format.isDbFormatAddDml(), true);
         }
@@ -166,7 +166,7 @@ namespace OpenLogReplicator {
             if (unlikely(redoResponsePB == nullptr))
                 throw RuntimeException(50018, "PB update processing failed, a message is missing");
         } else {
-            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE);
+            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE, topicIdOf(table));
             createResponse();
             appendHeader(scn, timestamp, true, format.isDbFormatAddDml(), true);
         }
@@ -204,7 +204,7 @@ namespace OpenLogReplicator {
             if (unlikely(redoResponsePB == nullptr))
                 throw RuntimeException(50018, "PB delete processing failed, a message is missing");
         } else {
-            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE);
+            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE, topicIdOf(table));
             createResponse();
             appendHeader(scn, timestamp, true, format.isDbFormatAddDml(), true);
         }
@@ -232,7 +232,7 @@ namespace OpenLogReplicator {
         ++num;
     }
 
-    void BuilderProtobuf::processDdl(Seq sequence, Scn scn, Time timestamp, const DbTable* table __attribute__((unused)), typeObj obj) {
+    void BuilderProtobuf::processDdl(Seq sequence, Scn scn, Time timestamp, const DbTable* table, typeObj obj) {
         if (newTran)
             processBeginMessage(sequence, timestamp);
 
@@ -240,7 +240,7 @@ namespace OpenLogReplicator {
             if (unlikely(redoResponsePB == nullptr))
                 throw RuntimeException(50018, "PB commit processing failed, a message is missing");
         } else {
-            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE);
+            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE, topicIdOf(table));
             createResponse();
             appendHeader(scn, timestamp, true, format.isDbFormatAddDdl(), true);
 

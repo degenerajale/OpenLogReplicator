@@ -32,6 +32,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 #include "../common/Ctx.h"
 #include "../common/DbTable.h"
+#include "../common/TopicMap.h"
 #include "../common/types/FileOffset.h"
 #include "../common/types/Seq.h"
 #include "../common/types/Time.h"
@@ -63,6 +64,9 @@ namespace OpenLogReplicator {
         };
 
         Schema* schema;
+        // Table name to Kafka topic mapping, owned here so its lifetime outlives
+        // both the schema (which reads it) and the writers (which read it)
+        TopicMap topicMap;
         Ctx* ctx;
         Locales* locales;
         State* state{nullptr};

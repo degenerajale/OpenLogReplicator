@@ -53,6 +53,12 @@ endif()
 
 find_package(Threads REQUIRED)
 
+option(WITH_TESTS "build unit tests" OFF)
+if (WITH_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif ()
+
 # RapidJSON
 if (WITH_RAPIDJSON)
     include_directories(SYSTEM ${WITH_RAPIDJSON}/include)

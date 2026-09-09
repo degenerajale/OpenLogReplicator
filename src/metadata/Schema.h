@@ -59,12 +59,14 @@ namespace OpenLogReplicator {
     class DbLob;
     class DbTable;
     class Locales;
+    class TopicMap;
     class XmlCtx;
 
     class Schema final {
     protected:
         Ctx* ctx;
         Locales* locales;
+        const TopicMap* topicMap{nullptr};
         RowId sysUserRowId;
         SysUser sysUserAdaptive;
 
@@ -111,6 +113,10 @@ namespace OpenLogReplicator {
 
         Schema(Ctx* newCtx, Locales* newLocales);
         ~Schema();
+
+        void setTopicMap(const TopicMap* newTopicMap) {
+            topicMap = newTopicMap;
+        }
 
         void purgeMetadata();
         void purgeDicts();

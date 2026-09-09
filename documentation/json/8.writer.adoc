@@ -23,8 +23,39 @@ It explains available writer types, their parameters, valid values and usage not
 |Description and notes
 
 |`topic`
-|_string_, max length: 256, mandatory for Kafka
+|_string_, max length: 249, mandatory for Kafka
 |Name of the Kafka topic to which transactions are published as JSON messages.
+This is the destination for tables not listed in `topics` and for all control frames (begin, commit, checkpoint, schema), which are not bound to any table.
+
+_NOTE:_ Valid only for `kafka` writer type.
+
+|`topics`
+|_map_ (string -> string), optional
+|Direct table-to-topic mapping for the `kafka` writer.
+Each key is a literal `OWNER.TABLE` table name (uppercased on load), each value the name (max length: 249) of the Kafka topic that table's changes are published to.
+
+* Keys are matched literally - no regex patterns, no placeholders, no auto-derivation of topic names.
+* Several tables may share one topic (fan-in).
+* Tables not listed here, and all control frames, go to the `topic` default topic.
+* Not valid together with the `full` message format, since one message can contain rows of several tables.
+* Not valid for writer types other than `kafka`.
+
+.Example
+[source,json]
+----
+"writer": {
+  "type": "kafka",
+  "topic": "olr_default",
+  "topics": {
+    "USER.TABLE":   "user_table",
+    "HR.EMPLOYEES": "hr_employees",
+    "HR.DEPTS":     "hr_employees"
+  }
+}
+----
+
+_CAUTION:_ Topics are not created automatically.
+Every mapped topic must already exist, unless the broker is configured to auto-create topics.
 
 _NOTE:_ Valid only for `kafka` writer type.
 

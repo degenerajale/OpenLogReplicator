@@ -26,6 +26,7 @@ list(APPEND ListCommon
         common/LobKey.cpp
         common/MemoryManager.cpp
         common/Thread.cpp
+        common/TopicMap.cpp
         common/XmlCtx.cpp
         common/exception/BootException.cpp
         common/exception/ConfigurationException.cpp

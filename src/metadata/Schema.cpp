@@ -25,6 +25,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../common/DbColumn.h"
 #include "../common/DbLob.h"
 #include "../common/DbTable.h"
+#include "../common/TopicMap.h"
 #include "../common/XmlCtx.h"
 #include "../common/exception/DataException.h"
 #include "../locales/Locales.h"
@@ -226,6 +227,12 @@ namespace OpenLogReplicator {
     void Schema::addTableToDict(DbTable* table) {
         if (unlikely(tableMap.find(table->obj) != tableMap.end()))
             throw DataException(50031, "can't add table (obj: " + std::to_string(table->obj) + ", dataobj: " + std::to_string(table->dataObj) + ")");
+
+        if (topicMap != nullptr) {
+            table->topicId = topicMap->idFor(table->owner, table->name);
+            if (table->topicId != TopicMap::DEFAULT_ID && ctx->isLogLevelAt(Ctx::LOG::DEBUG))
+                ctx->debug(0, "topic for table " + table->owner + "." + table->name + ": " + topicMap->names()[table->topicId]);
+        }
 
         tableMap.insert_or_assign(table->obj, table);
 

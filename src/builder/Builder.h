@@ -29,15 +29,18 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
+#include <cstdint>
 
 #include "../common/Attribute.h"
 #include "../common/Ctx.h"
+#include "../common/DbTable.h"
 #include "../common/Format.h"
 #include "../common/LobCtx.h"
 #include "../common/LobData.h"
 #include "../common/LobKey.h"
 #include "../common/RedoLogRecord.h"
 #include "../common/Thread.h"
+#include "../common/TopicMap.h"
 #include "../common/exception/RedoLogException.h"
 #include "../common/table/SysUser.h"
 #include "../common/types/Data.h"
@@ -90,6 +93,8 @@ namespace OpenLogReplicator {
         typeObj obj;
         typeTag tagSize;
         OUTPUT_BUFFER flags;
+        // Kafka topic id, resolved by the writer; copied here by builderBegin
+        uint16_t topicId;
 
         bool isFlagSet(OUTPUT_BUFFER flag) const {
             return (static_cast<uint>(flags) & static_cast<uint>(flag)) != 0;
@@ -104,9 +109,21 @@ namespace OpenLogReplicator {
         }
     };
 
+    // 8 x 8-byte members = 64, then Seq(4) + typeObj(4) + typeTag(4) + flags(1) + topicId(2), padded to 80.
+    // topicId lands in the existing tail padding (64-bit layout). If this assert fires, the message hot
+    // path grew - re-check the cost before deleting it.
+    static_assert(sizeof(BuilderMsg) == 80, "BuilderMsg grew beyond 80 bytes (64-bit target), check the cost before removing this assert");
+
     class Builder {
     public:
         static constexpr uint64_t OUTPUT_BUFFER_DATA_SIZE = Ctx::MEMORY_CHUNK_SIZE - sizeof(BuilderQueue);
+
+        // A DbTable is not always available: schemaless mode, system transactions and DDL for
+        // objects outside the filter all deliver a null table. Those messages take the default
+        // topic, like every other frame that is not bound to a table.
+        static uint16_t topicIdOf(const DbTable* table) {
+            return table != nullptr ? table->topicId : TopicMap::DEFAULT_ID;
+        }
 
     protected:
         static constexpr uint64_t BUFFER_START_UNDEFINED{0xFFFFFFFFFFFFFFFF};
@@ -307,7 +324,7 @@ namespace OpenLogReplicator {
             messagePosition += bytes;
         }
 
-        void builderBegin(Seq sequence, Scn scn, typeObj obj, BuilderMsg::OUTPUT_BUFFER flags) {
+        void builderBegin(Seq sequence, Scn scn, typeObj obj, BuilderMsg::OUTPUT_BUFFER flags, uint16_t topicId = 0) {
             messageSize = 0;
             messagePosition = 0;
             if (format.isScnTypeCommitValue())
@@ -328,6 +345,7 @@ namespace OpenLogReplicator {
             msg->id = id++;
             msg->obj = obj;
             msg->flags = flags;
+            msg->topicId = topicId;
             msg->data = lastBuilderQueue->data + lastBuilderSize + sizeof(BuilderMsg);
         }
 
@@ -1249,6 +1267,9 @@ namespace OpenLogReplicator {
 
         [[nodiscard]] uint64_t builderSize() const;
         [[nodiscard]] uint64_t getMaxMessageMb() const;
+        [[nodiscard]] bool isMessageFormatFull() const {
+            return format.isMessageFormatFull();
+        }
         void setMaxMessageMb(uint64_t maxMessageMb);
         void processBegin(Xid xid, uint16_t newThread, Seq newBeginSequence, Scn newBeginScn, Time newBeginTimestamp, Seq newCommitSequence, Scn newCommitScn,
                           Time newCommitTimestamp, const AttributeMap* newAttributes);

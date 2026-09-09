@@ -1097,12 +1097,17 @@ namespace OpenLogReplicator {
                     "queue-size",
                     "timestamp-format",
                     "topic",
+                    "topics",
                     "type",
                     "uri",
                     "write-buffer-flush-size"
                 };
                 Ctx::checkJsonFields(configFileName, writerJson, writerNames);
             }
+
+            if (writerJson.HasMember("topics") && writerType != "kafka")
+                throw ConfigurationException(30001, "bad JSON, invalid \"topics\" value, expected: not set when \"type\" is not \"kafka\" (" +
+                                             writerType + ")");
 
             if (writerJson.HasMember("poll-interval-us")) {
                 ctx->pollIntervalUs = Ctx::getJsonFieldU64(configFileName, writerJson, "poll-interval-us");
@@ -1173,7 +1178,37 @@ namespace OpenLogReplicator {
 
                 const std::string topic = Ctx::getJsonFieldS(configFileName, Ctx::JSON_TOPIC_LENGTH, writerJson, "topic");
 
-                writer = new WriterKafka(ctx, alias + "-writer", replicator2->database, replicator2->builder, replicator2->metadata, topic);
+                if (replicator2->builder->isMessageFormatFull() && writerJson.HasMember("topics"))
+                    throw ConfigurationException(30001, "bad JSON, invalid \"topics\" value, expected: not set when the message format is \"full\", "
+                                                 "since one message can contain rows of several tables");
+
+                auto* topicMap = &replicator2->metadata->topicMap;
+                topicMap->setDefault(topic);
+                if (writerJson.HasMember("topics")) {
+                    const rapidjson::Value& topicsJson = Ctx::getJsonFieldO(configFileName, writerJson, "topics");
+
+                    for (auto it = topicsJson.MemberBegin(); it != topicsJson.MemberEnd(); ++it) {
+                        if (!it->value.IsString())
+                            throw ConfigurationException(30001, std::string("bad JSON, invalid \"topics\" value for key \"") + it->name.GetString() +
+                                                         "\", expected: string topic name");
+                        topicMap->add(it->name.GetString(), it->value.GetString());
+                    }
+
+                    for (const auto& [ownerTable, id]: topicMap->mapping())
+                        ctx->info(0, "Kafka topic mapping: " + ownerTable + " -> " + topicMap->names()[id]);
+                }
+
+                for (const std::string& topicName: topicMap->names())
+                    if (topicName.find('.') != std::string::npos && topicName.find('_') != std::string::npos)
+                        ctx->warning(0, "topic name \"" + topicName + "\" contains both '.' and '_', which Kafka treats identically in metric names");
+
+                // Must be set before the writer thread is spawned: the replicator thread blocks in
+                // Metadata::waitForWriter() until then, so no table can reach Schema::addTableToDict
+                // before the map is wired in. If this ever moves after spawnThread(writer), every
+                // table would silently get the default topic.
+                replicator2->metadata->schema->setTopicMap(&replicator2->metadata->topicMap);
+
+                writer = new WriterKafka(ctx, alias + "-writer", replicator2->database, replicator2->builder, replicator2->metadata, topic, topicMap);
 
                 if (writerJson.HasMember("properties")) {
                     const rapidjson::Value& propertiesJson = Ctx::getJsonFieldO(configFileName, writerJson, "properties");
