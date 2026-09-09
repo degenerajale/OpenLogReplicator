@@ -395,3 +395,8 @@ The file will be partially read.
 
 A message exceeds the writer buffer.
 Increase `write-buffer-max-mb` and possibly `max-mb`.
+
+==== code 10073: "Kafka failed to create topic \"<topic>\", message: <message>"
+
+The Kafka producer could not create a handle for one of the configured topics (the default `topic` or an entry of `topics`).
+Check that the topic name is valid and the Kafka producer configuration is correct.

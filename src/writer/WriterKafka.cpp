@@ -18,15 +18,18 @@ License along with this program; see the file LICENSE;
 If not, see <http://www.gnu.org/licenses/>. */
 
 #include "../builder/Builder.h"
+#include "../common/TopicMap.h"
 #include "../common/exception/ConfigurationException.h"
 #include "../common/exception/RuntimeException.h"
 #include "../metadata/Metadata.h"
 #include "WriterKafka.h"
 
 namespace OpenLogReplicator {
-    WriterKafka::WriterKafka(Ctx* newCtx, std::string newAlias, std::string newDatabase, Builder* newBuilder, Metadata* newMetadata, std::string newTopic):
+    WriterKafka::WriterKafka(Ctx* newCtx, std::string newAlias, std::string newDatabase, Builder* newBuilder, Metadata* newMetadata, std::string newTopic,
+                             const TopicMap* newTopicMap):
             Writer(newCtx, std::move(newAlias), std::move(newDatabase), newBuilder, newMetadata),
-            topic(std::move(newTopic)) {
+            topic(std::move(newTopic)),
+            topicMap(newTopicMap) {
         errStr[0] = 0;
     }
 
@@ -34,8 +37,9 @@ namespace OpenLogReplicator {
         if (conf != nullptr)
             rd_kafka_conf_destroy(conf);
 
-        if (rkt != nullptr)
-            rd_kafka_topic_destroy(rkt);
+        for (rd_kafka_topic_t* rkt: rkts)
+            if (rkt != nullptr)
+                rd_kafka_topic_destroy(rkt);
 
         const rd_kafka_resp_err_t err = rd_kafka_fatal_error(rk, nullptr, 0);
         if (rk != nullptr)
@@ -83,7 +87,13 @@ namespace OpenLogReplicator {
             throw RuntimeException(10060, "Kafka failed to create producer, message: " + std::string(errStr));
         conf = nullptr;
 
-        rkt = rd_kafka_topic_new(rk, topic.c_str(), nullptr);
+        // One handle per entry in the topic map, in id order; index 0 is the default topic
+        for (const std::string& topicName: topicMap->names()) {
+            rd_kafka_topic_t* rkt = rd_kafka_topic_new(rk, topicName.c_str(), nullptr);
+            if (rkt == nullptr)
+                throw RuntimeException(10073, "Kafka failed to create topic \"" + topicName + "\", message: " + std::string(errStr));
+            rkts.push_back(rkt);
+        }
         streaming = true;
     }
 
@@ -121,25 +131,27 @@ namespace OpenLogReplicator {
     }
 
     void WriterKafka::sendMessage(BuilderMsg* msg) {
+        // topicId comes from the same TopicMap that built rkts, so it is always in bounds
+        ctx->assertDebug(msg->topicId < rkts.size());
         msg->ptr = reinterpret_cast<void*>(this);
         for (;;) {
             rd_kafka_resp_err_t err;
             if (msg->tagSize > 0)
                 err = rd_kafka_producev(rk,
-                                        RD_KAFKA_VTYPE_TOPIC, topic.c_str(),
+                                        RD_KAFKA_VTYPE_RKT, rkts[msg->topicId],
                                         RD_KAFKA_VTYPE_KEY, reinterpret_cast<void*>(msg->data), static_cast<size_t>(msg->tagSize),
                                         RD_KAFKA_VTYPE_VALUE, reinterpret_cast<void*>(msg->data + msg->tagSize), static_cast<size_t>(msg->size - msg->tagSize),
                                         RD_KAFKA_VTYPE_OPAQUE, reinterpret_cast<void*>(msg),
                                         RD_KAFKA_VTYPE_END);
             else
                 err = rd_kafka_producev(rk,
-                                        RD_KAFKA_VTYPE_TOPIC, topic.c_str(),
+                                        RD_KAFKA_VTYPE_RKT, rkts[msg->topicId],
                                         RD_KAFKA_VTYPE_VALUE, reinterpret_cast<void*>(msg->data), static_cast<size_t>(msg->size),
                                         RD_KAFKA_VTYPE_OPAQUE, reinterpret_cast<void*>(msg),
                                         RD_KAFKA_VTYPE_END);
 
             if (err != 0) {
-                ctx->warning(60031, "failed to produce to topic " + topic + ", message: " + rd_kafka_err2str(err));
+                ctx->warning(60031, "failed to produce to topic " + topicMap->names()[msg->topicId] + ", message: " + rd_kafka_err2str(err));
 
                 if (err == RD_KAFKA_RESP_ERR__QUEUE_FULL) {
                     ctx->warning(60031, "queue, full, sleeping " + std::to_string(ctx->pollIntervalUs / 1000) + " ms, then retrying");

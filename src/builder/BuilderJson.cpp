@@ -508,7 +508,7 @@ namespace OpenLogReplicator {
         if (format.isMessageFormatFull()) {
             comma(hasPreviousRedo);
         } else {
-            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE);
+            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE, topicIdOf(table));
             addTagData(lobCtx, xmlCtx, table, Format::VALUE_TYPE::AFTER, fileOffset);
 
             append('{');
@@ -548,7 +548,7 @@ namespace OpenLogReplicator {
         if (format.isMessageFormatFull()) {
             comma(hasPreviousRedo);
         } else {
-            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE);
+            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE, topicIdOf(table));
             addTagData(lobCtx, xmlCtx, table, Format::VALUE_TYPE::AFTER, fileOffset);
 
             append('{');
@@ -589,7 +589,7 @@ namespace OpenLogReplicator {
         if (format.isMessageFormatFull()) {
             comma(hasPreviousRedo);
         } else {
-            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE);
+            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE, topicIdOf(table));
             addTagData(lobCtx, xmlCtx, table, Format::VALUE_TYPE::BEFORE, fileOffset);
 
             append('{');
@@ -628,7 +628,7 @@ namespace OpenLogReplicator {
         if (format.isMessageFormatFull()) {
             comma(hasPreviousRedo);
         } else {
-            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE);
+            builderBegin(sequence, scn, obj, BuilderMsg::OUTPUT_BUFFER::NONE, topicIdOf(table));
             append('{');
             hasPreviousValue = false;
             appendHeader(scn, timestamp, false, format.isDbFormatAddDdl(), true, format.isUserTypeDdl());

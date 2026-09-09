@@ -130,12 +130,16 @@ namespace OpenLogReplicator {
         uint64_t maxId = 0;
         {
             while (currentQueueSize > 0 && queue[0]->isFlagSet(BuilderMsg::OUTPUT_BUFFER::CONFIRMED)) {
-                maxId = queue[0]->queueId;
-                if (confirmedScn == Scn::none() || msg->lwnScn > confirmedScn) {
-                    confirmedScn = msg->lwnScn;
-                    confirmedIdx = msg->lwnIdx;
-                } else if (msg->lwnScn == confirmedScn && msg->lwnIdx > confirmedIdx)
-                    confirmedIdx = msg->lwnIdx;
+                // Advance by the entry being retired, not by the message this callback confirmed:
+                // with several topics (or partitions) acknowledgments arrive out of order, and an
+                // earlier entry confirmed before this one must move the position by its own scn/idx.
+                const BuilderMsg* retired = queue[0];
+                maxId = retired->queueId;
+                if (confirmedScn == Scn::none() || retired->lwnScn > confirmedScn) {
+                    confirmedScn = retired->lwnScn;
+                    confirmedIdx = retired->lwnIdx;
+                } else if (retired->lwnScn == confirmedScn && retired->lwnIdx > confirmedIdx)
+                    confirmedIdx = retired->lwnIdx;
 
                 if (--currentQueueSize == 0)
                     break;

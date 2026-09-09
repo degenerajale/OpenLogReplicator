@@ -51,6 +51,9 @@ _NOTE:_ The `source` value must correspond to an existing `source` element; unre
   "writer": {
     "type": "kafka",
     "topic": "db_audit",
+    "topics": {
+      "HR.EMPLOYEES": "hr_employees"
+    },
     "properties": {
       "bootstrap.servers": "kafka1:9092,kafka2:9092"
     }

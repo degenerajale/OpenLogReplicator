@@ -81,6 +81,8 @@ namespace OpenLogReplicator {
         typeCol guardSegNo{-1};
         std::string owner;
         std::string name;
+        // Kafka topic id (0 = TopicMap::DEFAULT_ID, the writer's default topic), assigned once by Schema
+        uint16_t topicId{0};
         std::string tokSuf;
         std::string condition;
         BoolValue* conditionValue{nullptr};
