@@ -1792,6 +1792,13 @@ namespace OpenLogReplicator {
             redoLogRecord->slt = *redoLogRecord->data(fieldPos + 18);
             redoLogRecord->flg = ctx->read16(redoLogRecord->data(fieldPos + 20));
 
+            // Everything below only produces redo-dump output. Return before building the
+            // formatting strings when dumping is off - this function runs once per undo
+            // vector, and the std::string construction (undoType allocates) was measured at
+            // ~290 ns per call, more than the rest of the vector decode.
+            if (likely(ctx->dumpRedoLog < 1))
+                return;
+
             std::string ktuType{"ktubu"};
             std::string prevObj;
             std::string postObj;
@@ -1918,9 +1925,6 @@ namespace OpenLogReplicator {
                 else
                     userOnly = " No";
             }
-
-            if (ctx->dumpRedoLog < 1)
-                return;
 
             if (ktubl) {
                 // KTUBL
