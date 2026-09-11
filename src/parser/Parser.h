@@ -71,6 +71,8 @@ namespace OpenLogReplicator {
         TransactionBuffer* transactionBuffer;
         RedoLogRecord zero;
         Transaction* lastTransaction{nullptr};
+        bool fastFilter{false};
+        uint64_t skippedPairs{0};
 
         uint8_t* lwnChunks[MAX_LWN_CHUNKS]{};
         LwnMember* lwnMembers[MAX_RECORDS_IN_LWN + 1]{};
@@ -92,6 +94,10 @@ namespace OpenLogReplicator {
         void appendToTransaction(RedoLogRecord* redoLogRecord1, RedoLogRecord* redoLogRecord2);
         void appendToTransactionRollback(RedoLogRecord* redoLogRecord1, RedoLogRecord* redoLogRecord2);
         void dumpRedoVector(const uint8_t* data, typeSize recordSize) const;
+        void parseVectorHeader(const uint8_t* data, uint32_t recordSize, uint32_t offset, const LwnMember* lwnMember,
+                               uint64_t vectorNo, RedoLogRecord* out) const;
+        bool trySkipUntrackedPair(const uint8_t* data, uint32_t recordSize, uint32_t& offset, const LwnMember* lwnMember,
+                                  uint64_t vectorNo, RedoLogRecord* redoLogRecord1);
 
     public:
         int group;

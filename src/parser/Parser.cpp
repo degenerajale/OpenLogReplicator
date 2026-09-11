@@ -110,6 +110,145 @@ namespace OpenLogReplicator {
         *size = sizeof(uint64_t);
     }
 
+    void Parser::parseVectorHeader(const uint8_t* data, uint32_t recordSize, uint32_t offset, const LwnMember* lwnMember,
+                                   uint64_t vectorNo, RedoLogRecord* out) const {
+        out->clear();
+        out->vectorNo = vectorNo;
+        out->cls = ctx->read16(data + offset + 2);
+        out->afn = static_cast<typeAfn>(ctx->read32(data + offset + 4) & 0xFFFF);
+        out->dba = ctx->read32(data + offset + 8);
+        out->scnRecord = ctx->readScn(data + offset + 12);
+        out->rbl = 0; // TODO: verify field size/position
+        out->seq = data[offset + 20];
+        out->typ = data[offset + 21];
+        const typeUsn usn = (out->cls >= 15) ? (out->cls - 15) / 2 : -1;
+        if ((out->typ & RedoLogRecord::TYP_ENCRYPTED_TABLESPACE) != 0) {
+            out->typ &= ~RedoLogRecord::TYP_ENCRYPTED_TABLESPACE;
+            out->encryptedTablespace = true;
+        }
+
+        uint16_t fieldOffset;
+        if (ctx->version >= RedoLogRecord::REDO_VERSION_12_1) {
+            fieldOffset = 32;
+            out->flgRecord = ctx->read16(data + offset + 28);
+            out->conId = static_cast<typeConId>(ctx->read16(data + offset + 24));
+        } else {
+            fieldOffset = 24;
+            out->flgRecord = 0;
+            out->conId = 0;
+        }
+
+        if (unlikely(offset + fieldOffset + 1U >= recordSize)) {
+            dumpRedoVector(data, recordSize);
+            throw RedoLogException(50046, "block: " + std::to_string(lwnMember->block) + ", offset: " +
+                                   std::to_string(lwnMember->pageOffset) + ": position of field list (" + std::to_string(offset + fieldOffset + 1) +
+                                   ") outside of record, size: " + std::to_string(recordSize));
+        }
+
+        const uint8_t* fieldList = data + offset + fieldOffset;
+
+        out->opCode = (static_cast<typeOp1>(data[offset + 0]) << 8) | data[offset + 1];
+        out->size = fieldOffset + ((ctx->read16(fieldList) + 2) & 0xFFFC);
+        out->sequence = sequence;
+        out->scn = lwnMember->scn;
+        //ctx->info(0, "scn: " + out->scn.toString() + " op: " + std::to_string(out->opCode));
+        out->subScn = lwnMember->subScn;
+        out->usn = usn;
+        out->dataExt = const_cast<uint8_t*>(data) + offset;
+        out->timestamp = lwnTimestamp;
+        out->fileOffset = FileOffset(lwnMember->block, reader->getBlockSize()) + lwnMember->pageOffset + offset;
+        out->fieldSizesDelta = fieldOffset;
+        if (unlikely(out->fieldSizesDelta + 1U >= recordSize)) {
+            dumpRedoVector(data, recordSize);
+            throw RedoLogException(50046, "block: " + std::to_string(lwnMember->block) + ", offset: " +
+                                   std::to_string(lwnMember->pageOffset) + ": field size list (" +
+                                   std::to_string(out->fieldSizesDelta) +
+                                   ") outside of record, size: " + std::to_string(recordSize));
+        }
+        out->fieldCnt = (ctx->read16(out->data(out->fieldSizesDelta)) - 2) / 2;
+        out->fieldPos = fieldOffset +
+                ((ctx->read16(out->data(out->fieldSizesDelta)) + 2) & 0xFFFC);
+        if (unlikely(out->fieldPos >= recordSize)) {
+            dumpRedoVector(data, recordSize);
+            throw RedoLogException(50046, "block: " + std::to_string(lwnMember->block) + ", offset: " +
+                                   std::to_string(lwnMember->pageOffset) + ": fields (" + std::to_string(out->fieldPos) +
+                                   ") outside of record, size: " + std::to_string(recordSize));
+        }
+
+        // typePos fieldPos = out->fieldPos;
+        for (typeField i = 1; i <= out->fieldCnt; ++i) {
+            out->size += (ctx->read16(fieldList + (i * 2)) + 3) & 0xFFFC;
+
+            if (unlikely(offset + out->size > recordSize)) {
+                dumpRedoVector(data, recordSize);
+                throw RedoLogException(50046, "block: " + std::to_string(lwnMember->block) + ", offset: " +
+                                       std::to_string(lwnMember->pageOffset) + ": position of field list outside of record (" + "i: " +
+                                       std::to_string(i) + " c: " + std::to_string(out->fieldCnt) + " " + " o: " +
+                                       std::to_string(fieldOffset) + " p: " + std::to_string(offset) + " l: " +
+                                       std::to_string(out->size) + " r: " + std::to_string(recordSize) + ")");
+            }
+        }
+
+        if (unlikely(out->fieldPos > out->size)) {
+            dumpRedoVector(data, recordSize);
+            throw RedoLogException(50046, "block: " + std::to_string(lwnMember->block) + ", offset: " +
+                                   std::to_string(lwnMember->pageOffset) + ": incomplete record, offset: " +
+                                   std::to_string(out->fieldPos) + ", size: " +
+                                   std::to_string(out->size));
+        }
+    }
+
+    bool Parser::trySkipUntrackedPair(const uint8_t* data, uint32_t recordSize, uint32_t& offset, const LwnMember* lwnMember,
+                                      uint64_t vectorNo, RedoLogRecord* redoLogRecord1) {
+        // There is no next vector
+        if (offset >= recordSize)
+            return false;
+
+        RedoLogRecord peek;
+        parseVectorHeader(data, recordSize, offset, lwnMember, vectorNo, &peek);
+
+        // Only DML redo vectors are paired with an undo vector
+        if ((peek.opCode & 0xFF00) != 0x0B00)
+            return false;
+
+        bool skip = false;
+
+        // Skip other PDB vectors (mirrors appendToTransaction(redoLogRecord1, redoLogRecord2))
+        if (metadata->conId > 0 && peek.conId != metadata->conId)
+            skip = true;
+        else if (transactionBuffer->skipXidList.find(redoLogRecord1->xid) != transactionBuffer->skipXidList.end())
+            skip = true;
+        else {
+            Transaction* transaction = transactionBuffer->findTransaction(metadata->schema->xmlCtxDefault, redoLogRecord1->xid, redoLogRecord1->conId,
+                                                                          redoLogRecord1->thread, true,
+                                                                          ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_INCOMPLETE_TRANSACTIONS), false);
+            if (transaction == nullptr) {
+                skip = true;
+            } else {
+                lastTransaction = transaction;
+
+                const typeObj obj = (redoLogRecord1->dataObj != 0) ? redoLogRecord1->obj : 0;
+                const DbTable* table;
+                ctx->parserThread->contextSet(Thread::CONTEXT::TRAN);
+                {
+                    std::unique_lock const lckTransaction(metadata->mtxTransaction);
+                    table = metadata->schema->checkTableDict(obj);
+                }
+                ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
+
+                if (table == nullptr && !ctx->isFlagSet(Ctx::REDO_FLAGS::SCHEMALESS))
+                    skip = true;
+            }
+        }
+
+        if (skip) {
+            offset += peek.size;
+            ++skippedPairs;
+        }
+
+        return skip;
+    }
+
     void Parser::analyzeLwn(LwnMember* lwnMember) {
         if (unlikely(ctx->isTraceSet(Ctx::TRACE::LWN)))
             ctx->logTrace(Ctx::TRACE::LWN, "analyze blk: " + std::to_string(lwnMember->block) + " offset: " +
@@ -217,90 +356,7 @@ namespace OpenLogReplicator {
             else
                 vectorCur = 1 - vectorPrev;
 
-            redoLogRecord[vectorCur].clear();
-            redoLogRecord[vectorCur].vectorNo = (++vectors);
-            redoLogRecord[vectorCur].cls = ctx->read16(data + offset + 2);
-            redoLogRecord[vectorCur].afn = static_cast<typeAfn>(ctx->read32(data + offset + 4) & 0xFFFF);
-            redoLogRecord[vectorCur].dba = ctx->read32(data + offset + 8);
-            redoLogRecord[vectorCur].scnRecord = ctx->readScn(data + offset + 12);
-            redoLogRecord[vectorCur].rbl = 0; // TODO: verify field size/position
-            redoLogRecord[vectorCur].seq = data[offset + 20];
-            redoLogRecord[vectorCur].typ = data[offset + 21];
-            const typeUsn usn = (redoLogRecord[vectorCur].cls >= 15) ? (redoLogRecord[vectorCur].cls - 15) / 2 : -1;
-            if ((redoLogRecord[vectorCur].typ & RedoLogRecord::TYP_ENCRYPTED_TABLESPACE) != 0) {
-                redoLogRecord[vectorCur].typ &= ~RedoLogRecord::TYP_ENCRYPTED_TABLESPACE;
-                redoLogRecord[vectorCur].encryptedTablespace = true;
-            }
-
-            uint16_t fieldOffset;
-            if (ctx->version >= RedoLogRecord::REDO_VERSION_12_1) {
-                fieldOffset = 32;
-                redoLogRecord[vectorCur].flgRecord = ctx->read16(data + offset + 28);
-                redoLogRecord[vectorCur].conId = static_cast<typeConId>(ctx->read16(data + offset + 24));
-            } else {
-                fieldOffset = 24;
-                redoLogRecord[vectorCur].flgRecord = 0;
-                redoLogRecord[vectorCur].conId = 0;
-            }
-
-            if (unlikely(offset + fieldOffset + 1U >= recordSize)) {
-                dumpRedoVector(data, recordSize);
-                throw RedoLogException(50046, "block: " + std::to_string(lwnMember->block) + ", offset: " +
-                                       std::to_string(lwnMember->pageOffset) + ": position of field list (" + std::to_string(offset + fieldOffset + 1) +
-                                       ") outside of record, size: " + std::to_string(recordSize));
-            }
-
-            const uint8_t* fieldList = data + offset + fieldOffset;
-
-            redoLogRecord[vectorCur].opCode = (static_cast<typeOp1>(data[offset + 0]) << 8) | data[offset + 1];
-            redoLogRecord[vectorCur].size = fieldOffset + ((ctx->read16(fieldList) + 2) & 0xFFFC);
-            redoLogRecord[vectorCur].sequence = sequence;
-            redoLogRecord[vectorCur].scn = lwnMember->scn;
-            //ctx->info(0, "scn: " + redoLogRecord[vectorCur].scn.toString() + " op: " + std::to_string(redoLogRecord[vectorCur].opCode));
-            redoLogRecord[vectorCur].subScn = lwnMember->subScn;
-            redoLogRecord[vectorCur].usn = usn;
-            redoLogRecord[vectorCur].dataExt = data + offset;
-            redoLogRecord[vectorCur].timestamp = lwnTimestamp;
-            redoLogRecord[vectorCur].fileOffset = FileOffset(lwnMember->block, reader->getBlockSize()) + lwnMember->pageOffset + offset;
-            redoLogRecord[vectorCur].fieldSizesDelta = fieldOffset;
-            if (unlikely(redoLogRecord[vectorCur].fieldSizesDelta + 1U >= recordSize)) {
-                dumpRedoVector(data, recordSize);
-                throw RedoLogException(50046, "block: " + std::to_string(lwnMember->block) + ", offset: " +
-                                       std::to_string(lwnMember->pageOffset) + ": field size list (" +
-                                       std::to_string(redoLogRecord[vectorCur].fieldSizesDelta) +
-                                       ") outside of record, size: " + std::to_string(recordSize));
-            }
-            redoLogRecord[vectorCur].fieldCnt = (ctx->read16(redoLogRecord[vectorCur].data(redoLogRecord[vectorCur].fieldSizesDelta)) - 2) / 2;
-            redoLogRecord[vectorCur].fieldPos = fieldOffset +
-                    ((ctx->read16(redoLogRecord[vectorCur].data(redoLogRecord[vectorCur].fieldSizesDelta)) + 2) & 0xFFFC);
-            if (unlikely(redoLogRecord[vectorCur].fieldPos >= recordSize)) {
-                dumpRedoVector(data, recordSize);
-                throw RedoLogException(50046, "block: " + std::to_string(lwnMember->block) + ", offset: " +
-                                       std::to_string(lwnMember->pageOffset) + ": fields (" + std::to_string(redoLogRecord[vectorCur].fieldPos) +
-                                       ") outside of record, size: " + std::to_string(recordSize));
-            }
-
-            // typePos fieldPos = redoLogRecord[vectorCur].fieldPos;
-            for (typeField i = 1; i <= redoLogRecord[vectorCur].fieldCnt; ++i) {
-                redoLogRecord[vectorCur].size += (ctx->read16(fieldList + (i * 2)) + 3) & 0xFFFC;
-
-                if (unlikely(offset + redoLogRecord[vectorCur].size > recordSize)) {
-                    dumpRedoVector(data, recordSize);
-                    throw RedoLogException(50046, "block: " + std::to_string(lwnMember->block) + ", offset: " +
-                                           std::to_string(lwnMember->pageOffset) + ": position of field list outside of record (" + "i: " +
-                                           std::to_string(i) + " c: " + std::to_string(redoLogRecord[vectorCur].fieldCnt) + " " + " o: " +
-                                           std::to_string(fieldOffset) + " p: " + std::to_string(offset) + " l: " +
-                                           std::to_string(redoLogRecord[vectorCur].size) + " r: " + std::to_string(recordSize) + ")");
-                }
-            }
-
-            if (unlikely(redoLogRecord[vectorCur].fieldPos > redoLogRecord[vectorCur].size)) {
-                dumpRedoVector(data, recordSize);
-                throw RedoLogException(50046, "block: " + std::to_string(lwnMember->block) + ", offset: " +
-                                       std::to_string(lwnMember->pageOffset) + ": incomplete record, offset: " +
-                                       std::to_string(redoLogRecord[vectorCur].fieldPos) + ", size: " +
-                                       std::to_string(redoLogRecord[vectorCur].size));
-            }
+            parseVectorHeader(data, recordSize, offset, lwnMember, ++vectors, &redoLogRecord[vectorCur]);
 
             redoLogRecord[vectorCur].recordObj = 0xFFFFFFFF;
             redoLogRecord[vectorCur].recordDataObj = 0xFFFFFFFF;
@@ -313,6 +369,16 @@ namespace OpenLogReplicator {
                 switch (redoLogRecord[vectorCur].opCode) {
                     case 0x0501:
                         // Undo
+                        if (fastFilter && vectorPrev == -1) {
+                            if (!OpCode0501::process0501Head(ctx, &redoLogRecord[vectorCur]))
+                                break;
+                            if (trySkipUntrackedPair(data, recordSize, offset, lwnMember, vectors + 1, &redoLogRecord[vectorCur])) {
+                                vectorCur = -1;
+                                continue;
+                            }
+                            OpCode0501::process0501Body(ctx, &redoLogRecord[vectorCur]);
+                            break;
+                        }
                         OpCode0501::process0501(ctx, &redoLogRecord[vectorCur]);
                         break;
 
@@ -1272,6 +1338,11 @@ namespace OpenLogReplicator {
             nextScn = reader->getNextScn();
         }
         ctx->suppLogSize = 0;
+        fastFilter = ctx->isFlagSet(Ctx::REDO_FLAGS::FAST_FILTER) &&
+                !ctx->isFlagSet(Ctx::REDO_FLAGS::SCHEMALESS) &&
+                ctx->dumpRedoLog < 1 &&
+                !ctx->isTraceSet(Ctx::TRACE::DUMP);
+        skippedPairs = 0;
 
         if (reader->getBufferStart() == FileOffset(2, reader->getBlockSize())) {
             if (unlikely(ctx->dumpRedoLog >= 1)) {
@@ -1610,6 +1681,8 @@ namespace OpenLogReplicator {
             if (currentBlock != startBlock)
                 suppLogPercent = 100.0 * ctx->suppLogSize / (static_cast<double>(currentBlock - startBlock) * reader->getBlockSize());
 
+            const std::string suppLogNote = fastFilter ? " (fast filter on - supplemental size undercounted)" : "";
+
             if (group == 0) {
                 double mySpeed = 0;
                 const double myTime = static_cast<double>(cEnd - cStart) / 1000.0;
@@ -1628,14 +1701,17 @@ namespace OpenLogReplicator {
                               "Read speed: " + std::to_string(myReadSpeed) + " MB/s, " +
                               "Max LWN size: " + std::to_string(lwnAllocatedMax) + ", " +
                               "Supplemental redo log size: " + std::to_string(ctx->suppLogSize) + " bytes " +
-                              "(" + std::to_string(suppLogPercent) + " %)");
+                              "(" + std::to_string(suppLogPercent) + " %)" + suppLogNote);
             } else {
                 ctx->logTrace(Ctx::TRACE::PERFORMANCE, "Redo log size: " + std::to_string(static_cast<uint64_t>(currentBlock - startBlock) *
                                       reader->getBlockSize() / 1024 / 1024) + " MB, " +
                               "Max LWN size: " + std::to_string(lwnAllocatedMax) + ", " +
                               "Supplemental redo log size: " + std::to_string(ctx->suppLogSize) + " bytes " +
-                              "(" + std::to_string(suppLogPercent) + " %)");
+                              "(" + std::to_string(suppLogPercent) + " %)" + suppLogNote);
             }
+
+            if (fastFilter)
+                ctx->logTrace(Ctx::TRACE::PERFORMANCE, "Fast filter: " + std::to_string(skippedPairs) + " DML vector pairs skipped");
         }
 
         if (ctx->dumpRedoLog >= 1 && ctx->dumpStream->is_open()) {
