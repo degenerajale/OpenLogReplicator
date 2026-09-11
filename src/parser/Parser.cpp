@@ -200,6 +200,11 @@ namespace OpenLogReplicator {
 
     bool Parser::trySkipUntrackedPair(const uint8_t* data, uint32_t recordSize, uint32_t& offset, const LwnMember* lwnMember,
                                       uint64_t vectorNo, RedoLogRecord* redoLogRecord1) {
+        // Only row-DML undo is safe to skip. For opc 0x1A01 the body (kdli) overwrites obj/dataObj
+        // (OpCode.h kdliSuplog / kdliFpload), so the head's object is not final.
+        if (redoLogRecord1->opc != 0x0B01)
+            return false;
+
         // There is no next vector
         if (offset >= recordSize)
             return false;
