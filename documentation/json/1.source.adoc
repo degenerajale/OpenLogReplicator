@@ -114,6 +114,19 @@ _NOTE:_ Refer to the xref:../user-manual/9.advanced-topics.adoc[User Manual] for
 _TIP:_ Default 50,000 μs (50 ms) provides a good latency/CPU trade-off.
 Lower values reduce latency at the cost of higher CPU usage.
 
+|`read-parallel`
+|_integer_, min: 1, max: 16, default: 4
+|Number of redo reads kept in flight ahead of the parser (filesystem readers).
+
+With a single read in flight the reader is limited to roughly `1 MB / read latency`; keeping several in flight hides that latency.
+Measured on the same LUN (buffered `dd`, different members): 1 stream ~550 MB/s, 4 streams ~1000 MB/s, 8 streams ~1600 MB/s.
+
+Raise it until `bytes_parsed` keeps up with the redo rate during peaks, while watching `w_await` on the redo LUN (`iostat -x`); back off if the database's commit latency moves.
+Deep queues multiply LGWR write latency. Try `8` in UAT with `iostat` alongside before setting it in production.
+
+`read-buffer-max-mb` must be at least `read-parallel + 2`.
+Ignored (treated as `1`) for online redo logs in buffered mode (`flags: 8`) and for non-filesystem readers.
+
 |`redo-verify-delay-us`
 |_integer_, min: 0, default: 0
 |When non-zero, read online redo log data again after this delay (μs) to verify consistency.

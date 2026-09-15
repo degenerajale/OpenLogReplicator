@@ -43,6 +43,8 @@ namespace OpenLogReplicator {
     }
 
     void ReaderFilesystem::redoClose() {
+        stopReadPool();
+        readParallel = 1;
         if (fileDes != -1) {
             contextSet(CONTEXT::OS, REASON::OS);
             close(fileDes);
@@ -92,6 +94,13 @@ namespace OpenLogReplicator {
                 ctx->error(10008, "file: " + fileName + " - set no cache for file returned: " + strerror(errno));
         }
 #endif
+
+        // Parallel reads are used for archived logs in any IO mode; online logs only without
+        // the redo-verify double-read path (read2 owns bufferScan there).
+        readParallel = (ctx->readParallel > 1 && (ctx->redoVerifyDelayUs == 0 || group == 0))
+                ? static_cast<uint>(ctx->readParallel)
+                : 1;
+        startReadPool();
 
         return REDO_CODE::OK;
     }

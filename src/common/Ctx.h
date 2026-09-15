@@ -221,6 +221,7 @@ namespace OpenLogReplicator {
         uint64_t redoVerifyDelayUs{0};
         uint64_t archReadSleepUs{10000000};
         uint64_t refreshIntervalUs{10000000};
+        uint64_t readParallel{4};
         // Writer
         uint64_t pollIntervalUs{100000};
         uint64_t queueSize{65536};

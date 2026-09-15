@@ -85,6 +85,10 @@ namespace OpenLogReplicator {
             condReaderSleeping.notify_all();
             condParserSleeping.notify_all();
         }
+        {
+            std::unique_lock const lck(readMtx);
+            readDoneCond.notify_all();
+        }
         contextSet(CONTEXT::CPU);
     }
 
@@ -365,6 +369,274 @@ namespace OpenLogReplicator {
     }
 
     bool Reader::read1() {
+        if (readParallel <= 1)
+            return read1Single();
+        return read1Parallel();
+    }
+
+    void Reader::startReadPool() {
+        if (readParallel <= 1 || !readWorkers.empty())
+            return;
+        readStop = false;
+        readHead = 0;
+        readTail = 0;
+        readInFlightCnt = 0;
+        readQueue.clear();
+        readInFlight.assign(readParallel, ReadInFlight{});
+        for (uint i = 0; i < readParallel; ++i)
+            readWorkers.emplace_back([this] { readWorker(); });
+    }
+
+    void Reader::stopReadPool() {
+        if (readWorkers.empty())
+            return;
+        drainReads();
+        {
+            std::unique_lock const lck(readMtx);
+            readStop = true;
+            readQueue.clear();
+            readQueueCond.notify_all();
+            readDoneCond.notify_all();
+        }
+        for (std::thread& worker: readWorkers)
+            worker.join();
+        readWorkers.clear();
+        {
+            std::unique_lock const lck(readMtx);
+            readInFlight.assign(readParallel, ReadInFlight{});
+            readQueue.clear();
+            readInFlightCnt = 0;
+            readHead = 0;
+            readTail = 0;
+            readStop = false;
+        }
+    }
+
+    void Reader::drainReads() {
+        std::unique_lock lck(readMtx);
+
+        // Requests a worker has not picked up yet will never complete; drop them.
+        const uint queued = static_cast<uint>(readQueue.size());
+        readInFlightCnt = (readInFlightCnt >= queued) ? readInFlightCnt - queued : 0;
+        readQueue.clear();
+
+        // Wait for the requests that are already being read.
+        while (readInFlightCnt > 0) {
+            while (!readInFlight[readHead % readParallel].done)
+                readDoneCond.wait(lck);
+            readInFlight[readHead % readParallel].done = false;
+            ++readHead;
+            --readInFlightCnt;
+        }
+
+        readHead = readTail;
+        readInFlightCnt = 0;
+        readInFlight.assign(readParallel, ReadInFlight{});
+        readQueue.clear();
+    }
+
+    void Reader::readWorker() {
+        for (;;) {
+            ReadRequest request;
+            {
+                std::unique_lock lck(readMtx);
+                readQueueCond.wait(lck, [this] { return readStop || !readQueue.empty(); });
+                if (readStop && readQueue.empty())
+                    return;
+                request = readQueue.front();
+                readQueue.pop_front();
+            }
+
+            const int result = redoRead(request.buffer, request.offset, request.size);
+            const int err = (result < 0) ? errno : 0;
+
+            {
+                std::unique_lock const lck(readMtx);
+                ReadInFlight& inFlight = readInFlight[request.seq % readParallel];
+                inFlight.buffer = request.buffer;
+                inFlight.offset = request.offset;
+                inFlight.size = request.size;
+                inFlight.result = result;
+                inFlight.err = err;
+                inFlight.done = true;
+            }
+            readDoneCond.notify_all();
+        }
+    }
+
+    bool Reader::read1Parallel() {
+        // Submit requests while there is room in the table and in the read buffer.
+        while (readInFlightCnt < readParallel && bufferScan < fileSize &&
+               (bufferIsFree() || (bufferScan % Ctx::MEMORY_CHUNK_SIZE) > 0)) {
+            uint toRead = readSize(lastRead);
+
+            if (bufferScan + toRead > fileSize)
+                toRead = fileSize - bufferScan;
+
+            const uint64_t redoBufferPos = bufferScan % Ctx::MEMORY_CHUNK_SIZE;
+            const uint64_t redoBufferNum = (bufferScan / Ctx::MEMORY_CHUNK_SIZE) % ctx->memoryChunksReadBufferMax;
+            if (redoBufferPos + toRead > Ctx::MEMORY_CHUNK_SIZE)
+                toRead = Ctx::MEMORY_CHUNK_SIZE - redoBufferPos;
+
+            if (toRead == 0) {
+                ctx->error(40010, "file: " + fileName + " - zero to read, start: " + std::to_string(bufferStart) + ", end: " +
+                           std::to_string(bufferEnd) + ", scan: " + std::to_string(bufferScan));
+                ret = REDO_CODE::ERROR;
+                return false;
+            }
+
+            bufferAllocate(redoBufferNum);
+
+            {
+                std::unique_lock const lck(readMtx);
+                readInFlight[readTail % readParallel].done = false;
+                ReadRequest& request = readQueue.emplace_back();
+                request.buffer = redoBufferList[redoBufferNum] + redoBufferPos;
+                request.offset = bufferScan;
+                request.size = toRead;
+                request.seq = readTail;
+            }
+            readQueueCond.notify_one();
+
+            lastRead = toRead;
+            bufferScan += toRead;
+            ++readTail;
+            ++readInFlightCnt;
+        }
+
+        if (readInFlightCnt == 0)
+            return true;
+
+        // Wait for the oldest request, consume the entries in order.
+        uint8_t* buffer;
+        uint64_t readOffset;
+        uint requestedSize;
+        int actualRead;
+        int readErr;
+        {
+            std::unique_lock lck(readMtx);
+            while (!readInFlight[readHead % readParallel].done && !ctx->softShutdown)
+                readDoneCond.wait(lck);
+
+            if (ctx->softShutdown)
+                return true;
+
+            ReadInFlight& inFlight = readInFlight[readHead % readParallel];
+            buffer = inFlight.buffer;
+            readOffset = inFlight.offset;
+            requestedSize = inFlight.size;
+            actualRead = inFlight.result;
+            readErr = inFlight.err;
+            inFlight.done = false;
+        }
+        const typeBlk readOffsetBlock = readOffset / blockSize;
+        ++readHead;
+        --readInFlightCnt;
+
+        if (actualRead < 0) {
+            ctx->error(40003, "file: " + fileName + " - " + strerror(readErr));
+            ret = REDO_CODE::ERROR_READ;
+            return false;
+        }
+        if (ctx->metrics != nullptr)
+            ctx->metrics->emitBytesRead(actualRead);
+
+        if (actualRead > 0 && fileCopyDes != -1 && (ctx->redoVerifyDelayUs == 0 || group == 0)) {
+            const int bytesWritten = pwrite(fileCopyDes, buffer, actualRead, readOffset);
+            if (bytesWritten != actualRead) {
+                ctx->error(10007, "file: " + fileNameWrite + " - " + std::to_string(bytesWritten) + " bytes written instead of " +
+                           std::to_string(actualRead) + ", code returned: " + strerror(errno));
+                ret = REDO_CODE::ERROR_WRITE;
+                return false;
+            }
+        }
+
+        const typeBlk maxNumBlock = actualRead / blockSize;
+        uint goodBlocks = 0;
+        auto currentRet = REDO_CODE::OK;
+
+        // Check which blocks are good, in order, on this thread.
+        for (typeBlk numBlock = 0; numBlock < maxNumBlock; ++numBlock) {
+            currentRet = checkBlockHeader(buffer + (numBlock * blockSize), readOffsetBlock + numBlock,
+                                          ctx->redoVerifyDelayUs == 0 || group == 0);
+            if (unlikely(ctx->isTraceSet(Ctx::TRACE::DISK)))
+                ctx->logTrace(Ctx::TRACE::DISK, "block: " + std::to_string(readOffsetBlock + numBlock) + " check: " +
+                              std::to_string(static_cast<uint>(currentRet)));
+
+            if (currentRet != REDO_CODE::OK)
+                break;
+            ++goodBlocks;
+        }
+
+        // Partial online redo log file
+        if (goodBlocks == 0 && group == 0) {
+            if (nextScnHeader != Scn::none()) {
+                ret = REDO_CODE::FINISHED;
+                nextScn = nextScnHeader;
+            } else {
+                ctx->warning(60023, "file: " + fileName + " - position: " + std::to_string(readOffset) + " - unexpected end of file");
+                ret = REDO_CODE::STOPPED;
+            }
+            return false;
+        }
+
+        // Treat bad blocks as empty
+        if (currentRet == REDO_CODE::ERROR_CRC && ctx->redoVerifyDelayUs > 0 && group != 0)
+            currentRet = REDO_CODE::EMPTY;
+
+        if (goodBlocks == 0 && currentRet != REDO_CODE::OK && currentRet != REDO_CODE::EMPTY) {
+            ret = currentRet;
+            return false;
+        }
+
+        // Check for log switch
+        if (goodBlocks == 0 && currentRet == REDO_CODE::EMPTY) {
+            currentRet = reloadHeader();
+            if (currentRet != REDO_CODE::OK) {
+                ret = currentRet;
+                return false;
+            }
+            reachedZero = true;
+        } else {
+            readBlocks = true;
+            reachedZero = false;
+        }
+
+        lastReadTime = ctx->clock->getTimeUt();
+        if (goodBlocks > 0) {
+            {
+                contextSet(CONTEXT::MUTEX, REASON::READER_READ1);
+                std::unique_lock const lck(mtx);
+                bufferEnd += goodBlocks * blockSize;
+                condParserSleeping.notify_all();
+            }
+            contextSet(CONTEXT::CPU);
+        }
+
+        // Batch mode with a partial online redo log file
+        if (currentRet == REDO_CODE::ERROR_SEQUENCE && group == 0) {
+            if (nextScnHeader != Scn::none()) {
+                ret = REDO_CODE::FINISHED;
+                nextScn = nextScnHeader;
+            } else {
+                ctx->warning(60023, "file: " + fileName + " - position: " + std::to_string(bufferScan) + " - unexpected end of file");
+                ret = REDO_CODE::STOPPED;
+            }
+            return false;
+        }
+
+        // Frontier or short read: bytes beyond the oldest request were fetched before the
+        // frontier moved, discard every younger request and re-read from bufferEnd.
+        if (static_cast<uint64_t>(goodBlocks) * blockSize < requestedSize) {
+            drainReads();
+            bufferScan = bufferEnd;
+            lastRead = goodBlocks * blockSize;
+        }
+
+        return true;
+    }
+
+    bool Reader::read1Single() {
         uint toRead = readSize(lastRead);
 
         if (bufferScan + toRead > fileSize)
@@ -703,13 +975,14 @@ namespace OpenLogReplicator {
                         }
                     }
 
-                    if (bufferEnd < bufferScan)
+                    if (ctx->redoVerifyDelayUs > 0 && group != 0 && bufferEnd < bufferScan)
                         if (!read2())
                             break;
 
                     // #1 read
-                    if (bufferScan < fileSize && (bufferIsFree() || (bufferScan % Ctx::MEMORY_CHUNK_SIZE) > 0)
-                        && (!reachedZero || lastReadTime + static_cast<time_t>(ctx->redoReadSleepUs) < loopTime))
+                    if (readInFlightCnt > 0 ||
+                        (bufferScan < fileSize && (bufferIsFree() || (bufferScan % Ctx::MEMORY_CHUNK_SIZE) > 0)
+                         && (!reachedZero || lastReadTime + static_cast<time_t>(ctx->redoReadSleepUs) < loopTime)))
                         if (!read1())
                             break;
 
@@ -747,6 +1020,8 @@ namespace OpenLogReplicator {
                         }
                     }
                 }
+
+                drainReads();
 
                 {
                     contextSet(CONTEXT::MUTEX, REASON::READER_SLEEP2);

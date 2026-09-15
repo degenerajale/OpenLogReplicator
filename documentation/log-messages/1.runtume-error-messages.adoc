@@ -400,3 +400,8 @@ Increase `write-buffer-max-mb` and possibly `max-mb`.
 
 The Kafka producer could not create a handle for one of the configured topics (the default `topic` or an entry of `topics`).
 Check that the topic name is valid and the Kafka producer configuration is correct.
+
+==== code 10074: "parameter \"read-buffer-max-mb\" = <value> is too small for \"read-parallel\" = <value>, expected at least: <value>"
+
+The read buffer must hold the chunks that are in flight plus the ones the parser has not freed yet.
+Increase `memory` -> `read-buffer-max-mb` to at least `read-parallel + 2`, or lower `read-parallel`.

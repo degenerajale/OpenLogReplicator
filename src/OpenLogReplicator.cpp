@@ -476,6 +476,7 @@ namespace OpenLogReplicator {
                     "format",
                     "memory",
                     "name",
+                    "read-parallel",
                     "reader",
                     "redo-read-sleep-us",
                     "redo-verify-delay-us",
@@ -888,6 +889,21 @@ namespace OpenLogReplicator {
 
             if (sourceJson.HasMember("redo-read-sleep-us"))
                 ctx->redoReadSleepUs = Ctx::getJsonFieldU64(configFileName, sourceJson, "redo-read-sleep-us");
+
+            if (sourceJson.HasMember("read-parallel")) {
+                ctx->readParallel = Ctx::getJsonFieldU64(configFileName, sourceJson, "read-parallel");
+                if (ctx->readParallel < 1 || ctx->readParallel > 16)
+                    throw ConfigurationException(30001, "bad JSON, invalid \"read-parallel\" value: " +
+                                                 std::to_string(ctx->readParallel) + ", expected: one of: {1 .. 16}");
+            }
+
+            if (memoryReadBufferMaxMb < ctx->readParallel + 2)
+                throw RuntimeException(10074, "parameter \"read-buffer-max-mb\" = " + std::to_string(memoryReadBufferMaxMb) +
+                                       " is too small for \"read-parallel\" = " + std::to_string(ctx->readParallel) +
+                                       ", expected at least: " + std::to_string(ctx->readParallel + 2));
+
+            if (ctx->readParallel + 1 > ctx->memoryChunksReadBufferMin)
+                ctx->memoryChunksReadBufferMin = ctx->readParallel + 1;
 
             if (sourceJson.HasMember("arch-read-sleep-us"))
                 ctx->archReadSleepUs = Ctx::getJsonFieldU64(configFileName, sourceJson, "arch-read-sleep-us");
