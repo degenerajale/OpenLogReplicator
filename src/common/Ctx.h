@@ -253,9 +253,9 @@ namespace OpenLogReplicator {
         mutable std::mutex swapMtx;
         std::condition_variable reusedTransactions;
         bool version12{false};
-        bool hardShutdown{false};
-        bool softShutdown{false};
-        bool replicatorFinished{false};
+        std::atomic<bool> hardShutdown{false};
+        std::atomic<bool> softShutdown{false};
+        std::atomic<bool> replicatorFinished{false};
 
         Ctx();
         ~Ctx();
