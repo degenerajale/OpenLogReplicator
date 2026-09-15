@@ -185,3 +185,8 @@ Remediation: Verify XML content and source XML dictionary metadata.
 
 DDL-related system data is malformed or unexpected.
 Remediation: Inspect raw DDL records and source metadata; report if reproducible.
+
+==== code 60039: "file: <file name> - started <number> of <number> read-parallel threads: <message>"
+
+The reader could not start all the read threads configured with `read-parallel` because the host or container limit on threads or processes was reached. The file is read with the threads that did start; if none started, it is read without read-ahead.
+Remediation: Raise the thread/process limit (for example `ulimit -u`, or the container `pids-limit`), or lower `read-parallel`.

@@ -239,4 +239,9 @@ if (WITH_TESTS)
     # smoke runs: the default 8 columns and the 1-column edge of the synthetic record
     olr_add_test(ff_bench_smoke ff_bench 1000 8)
     olr_add_test(ff_bench_1col ff_bench 1000 1)
+
+    add_executable(test_reader_parallel tests/test_reader_parallel.cpp)
+    target_link_libraries(test_reader_parallel LibReader LibCommon)
+    olr_link_dependencies(test_reader_parallel)
+    olr_add_test(test_reader_parallel test_reader_parallel)
 endif ()

@@ -28,6 +28,7 @@ enum {
 #include <dirent.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <pthread.h>
 #include <unistd.h>
 
 #include "../common/Clock.h"
@@ -43,6 +44,8 @@ namespace OpenLogReplicator {
     }
 
     void ReaderFilesystem::redoClose() {
+        stopReadPool();
+        readParallel = 1;
         if (fileDes != -1) {
             contextSet(CONTEXT::OS, REASON::OS);
             close(fileDes);
@@ -93,22 +96,40 @@ namespace OpenLogReplicator {
         }
 #endif
 
+        // Parallel reads are used for archived logs in any IO mode; online logs only without
+        // the redo-verify double-read path (read2 owns bufferScan there). The worker pool is
+        // started by the first parallel read, not here: redoOpen also runs for header checks
+        // of files that are never read.
+        readParallel = (ctx->readParallel > 1 && (ctx->redoVerifyDelayUs == 0 || group == 0))
+                ? static_cast<uint>(ctx->readParallel)
+                : 1;
+        readAtFrontier = false;
+
         return REDO_CODE::OK;
     }
 
     int ReaderFilesystem::redoRead(uint8_t* buf, uint64_t offset, uint size) {
-        uint64_t startTime = 0;
-        if (unlikely(ctx->isTraceSet(Ctx::TRACE::PERFORMANCE)))
-            startTime = ctx->clock->getTimeUt();
+        const bool timed = unlikely(ctx->isTraceSet(Ctx::TRACE::PERFORMANCE));
+        if (timed) {
+            std::unique_lock const lck(readBusyMtx);
+            if (readBusyCnt++ == 0)
+                readBusyStart = ctx->clock->getTimeUt();
+        }
         int bytes = 0;
         uint tries = ctx->archReadTries;
+        // With read-parallel > 1 this runs on the pool workers as well as on the reader thread.
+        // The context/timing counters behind contextSet() belong to the reader thread and are not
+        // synchronised, so only the owning thread may touch them.
+        const bool ownThread = (pthread_equal(pthread_self(), pthread) != 0);
 
         while (tries > 0) {
             if (ctx->hardShutdown)
                 break;
-            contextSet(CONTEXT::OS, REASON::OS);
+            if (ownThread)
+                contextSet(CONTEXT::OS, REASON::OS);
             bytes = pread(fileDes, buf, size, static_cast<int64_t>(offset));
-            contextSet(CONTEXT::CPU);
+            if (ownThread)
+                contextSet(CONTEXT::CPU);
             if (unlikely(ctx->isTraceSet(Ctx::TRACE::FILE)))
                 ctx->logTrace(Ctx::TRACE::FILE, "read " + fileName + ", " + std::to_string(offset) + ", " + std::to_string(size) +
                               " returns " + std::to_string(bytes));
@@ -126,9 +147,11 @@ namespace OpenLogReplicator {
                 break;
 
             ctx->info(0, "sleeping " + std::to_string(ctx->archReadSleepUs) + " us before retrying read");
-            contextSet(CONTEXT::SLEEP);
+            if (ownThread)
+                contextSet(CONTEXT::SLEEP);
             ctx->usleepInt(ctx->archReadSleepUs);
-            contextSet(CONTEXT::CPU);
+            if (ownThread)
+                contextSet(CONTEXT::CPU);
             --tries;
         }
 
@@ -138,10 +161,12 @@ namespace OpenLogReplicator {
                     std::to_string(static_cast<uint>(Ctx::REDO_FLAGS::DIRECT_DISABLE)));
         }
 
-        if (unlikely(ctx->isTraceSet(Ctx::TRACE::PERFORMANCE))) {
+        if (timed) {
             if (bytes > 0)
                 sumRead += bytes;
-            sumTime += ctx->clock->getTimeUt() - startTime;
+            std::unique_lock const lck(readBusyMtx);
+            if (--readBusyCnt == 0)
+                sumTime += ctx->clock->getTimeUt() - readBusyStart;
         }
 
         return bytes;
