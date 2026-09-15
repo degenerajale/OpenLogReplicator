@@ -167,7 +167,9 @@ namespace OpenLogReplicator {
 
             if (unlikely(fieldSize < 20))
                 throw RedoLogException(
-                        50061, "too short field supplemental log: " + std::to_string(fieldSize) + " offset: " + redoLogRecord->fileOffset.toString());
+                        50061, "too short field supplemental log: " + std::to_string(fieldSize) + " offset: " + redoLogRecord->fileOffset.toString() +
+                        " obj: " + std::to_string(redoLogRecord->obj) + " dataobj: " + std::to_string(redoLogRecord->dataObj) +
+                        " op: " + std::to_string(static_cast<uint>(redoLogRecord->op)) + " xid: " + redoLogRecord->xid.toString());
 
             ++suppLogFieldCnt;
             suppLogSize += (fieldSize + 3) & 0xFFFC;
