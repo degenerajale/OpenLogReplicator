@@ -44,6 +44,7 @@ namespace OpenLogReplicator {
             "   SEQUENCE# >= :i"
             "   AND RESETLOGS_ID = :j"
             "   AND NAME IS NOT NULL"
+            "   AND STANDBY_DEST = 'NO'"
             " ORDER BY"
             "   SEQUENCE#"
             ",  DEST_ID"

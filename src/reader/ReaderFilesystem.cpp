@@ -161,7 +161,11 @@ namespace OpenLogReplicator {
         while (!mappedPath.empty()) {
             std::string partialFileName;
             if (!first) {
-                size_t found = mappedPath.find_last_of("/\\");
+                const size_t found = mappedPath.find_last_of("/\\");
+                // No directory separator left (e.g. a bare host name from a remote archive
+                // destination): nothing further up to check.
+                if (found == std::string::npos)
+                    break;
                 partialFileName = mappedPath.substr(found + 1);
                 mappedPath.resize(found);
             }
