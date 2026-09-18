@@ -1286,7 +1286,7 @@ namespace OpenLogReplicator {
         void releaseBuffers(Thread* t, uint64_t maxId);
         void releaseDdl();
         void appendDdlChunk(const uint8_t* data, typeTransactionSize size);
-        void sleepForWriterWork(Thread* t, uint64_t queueSize, uint64_t nanoseconds);
+        void sleepForWriterWork(Thread* t, uint64_t microseconds);
         void wakeUp();
 
         void flush() {

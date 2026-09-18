@@ -255,7 +255,7 @@ namespace OpenLogReplicator {
 
                 if (ctx->softShutdown && ctx->replicatorFinished)
                     break;
-                builder->sleepForWriterWork(this, currentQueueSize, ctx->pollIntervalUs);
+                builder->sleepForWriterWork(this, ctx->pollIntervalUs);
             }
 
             __builtin_prefetch(reinterpret_cast<char*>(msg), 0, 0);
