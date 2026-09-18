@@ -2460,7 +2460,7 @@ namespace OpenLogReplicator {
         }
     }
 
-    void Builder::sleepForWriterWork(Thread* t, uint64_t queueSize, uint64_t nanoseconds) {
+    void Builder::sleepForWriterWork(Thread* t, uint64_t microseconds) {
         if (unlikely(ctx->isTraceSet(Ctx::TRACE::SLEEP)))
             ctx->logTrace(Ctx::TRACE::SLEEP, "Builder:sleepForWriterWork");
 
@@ -2468,10 +2468,11 @@ namespace OpenLogReplicator {
             t->contextSet(Thread::CONTEXT::MUTEX, Thread::REASON::WRITER_DONE);
             std::unique_lock lck(mtx);
             t->contextSet(Thread::CONTEXT::WAIT, Thread::REASON::WRITER_NO_WORK);
-            if (queueSize > 0)
-                condNoWriterWork.wait_for(lck, std::chrono::nanoseconds(nanoseconds));
-            else
-                condNoWriterWork.wait_for(lck, std::chrono::seconds(5));
+            // Wake at poll-interval-us whether or not messages are in flight. The builder only
+            // notifies when flush-buffer bytes are pending, so with an idle output queue the
+            // old 5 s wait was the latency floor for every message below that threshold.
+            // (The caller passes microseconds; the previous code waited that many nanoseconds.)
+            condNoWriterWork.wait_for(lck, std::chrono::microseconds(microseconds));
         }
         t->contextSet(Thread::CONTEXT::CPU);
     }
