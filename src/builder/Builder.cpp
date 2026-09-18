@@ -2460,23 +2460,31 @@ namespace OpenLogReplicator {
         }
     }
 
-    void Builder::sleepForWriterWork(Thread* t, uint64_t queueSize, uint64_t nanoseconds) {
+    // Wait until the builder commits a new message (or wakeUp is called) after seenWakeSeq, which
+    // the writer read before it last looked for work, or until the timeout. While messages await
+    // acknowledgement the timeout is at most 100 us, so delivery reports and checkpoint progress
+    // are picked up as quickly as before; otherwise it is poll-interval-us, and new output still
+    // wakes the writer immediately.
+    void Builder::sleepForWriterWork(Thread* t, bool messagesInFlight, uint64_t microseconds, uint64_t seenWakeSeq) {
         if (unlikely(ctx->isTraceSet(Ctx::TRACE::SLEEP)))
             ctx->logTrace(Ctx::TRACE::SLEEP, "Builder:sleepForWriterWork");
 
+        const uint64_t timeout = messagesInFlight ? std::min<uint64_t>(microseconds, 100) : microseconds;
         {
             t->contextSet(Thread::CONTEXT::MUTEX, Thread::REASON::WRITER_DONE);
             std::unique_lock lck(mtx);
             t->contextSet(Thread::CONTEXT::WAIT, Thread::REASON::WRITER_NO_WORK);
-            if (queueSize > 0)
-                condNoWriterWork.wait_for(lck, std::chrono::nanoseconds(nanoseconds));
-            else
-                condNoWriterWork.wait_for(lck, std::chrono::seconds(5));
+            writerWaiting.store(true);
+            condNoWriterWork.wait_for(lck, std::chrono::microseconds(timeout), [this, seenWakeSeq] {
+                return writerWakeSeq.load() != seenWakeSeq;
+            });
+            writerWaiting.store(false);
         }
         t->contextSet(Thread::CONTEXT::CPU);
     }
 
     void Builder::wakeUp() {
+        writerWakeSeq.fetch_add(1);
         std::unique_lock const lck(mtx);
         condNoWriterWork.notify_all();
     }

@@ -192,6 +192,11 @@ namespace OpenLogReplicator {
 
         std::mutex mtx;
         std::condition_variable condNoWriterWork;
+        // Writer wake-up without a notify per message: every committed message (and wakeUp) bumps
+        // writerWakeSeq; the builder notifies only while the writer is waiting. Both are seq_cst so
+        // that either the writer sees the new sequence before waiting or the builder sees it waiting.
+        std::atomic<uint64_t> writerWakeSeq{0};
+        std::atomic<bool> writerWaiting{false};
         char ddlSchemaName[SysUser::NAME_LENGTH]{};
         typeSize ddlSchemaSize{0};
 
@@ -364,7 +369,9 @@ namespace OpenLogReplicator {
             if (unlikely(lastBuilderQueue->start == BUFFER_START_UNDEFINED))
                 lastBuilderQueue->start = static_cast<uint64_t>(lastBuilderQueue->confirmedSize);
 
-            if (flushBuffer == 0 || unconfirmedSize > flushBuffer)
+            writerWakeSeq.fetch_add(1);
+            // Batch notifications while the writer is busy; wake it at once when it is waiting
+            if (flushBuffer == 0 || unconfirmedSize > flushBuffer || writerWaiting.load())
                 flush();
         }
 
@@ -1286,7 +1293,10 @@ namespace OpenLogReplicator {
         void releaseBuffers(Thread* t, uint64_t maxId);
         void releaseDdl();
         void appendDdlChunk(const uint8_t* data, typeTransactionSize size);
-        void sleepForWriterWork(Thread* t, uint64_t queueSize, uint64_t nanoseconds);
+        [[nodiscard]] uint64_t getWriterWakeSeq() const {
+            return writerWakeSeq.load();
+        }
+        void sleepForWriterWork(Thread* t, bool messagesInFlight, uint64_t microseconds, uint64_t seenWakeSeq);
         void wakeUp();
 
         void flush() {

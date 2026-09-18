@@ -237,6 +237,9 @@ namespace OpenLogReplicator {
 
             // Get a message to send
             while (!ctx->hardShutdown) {
+                // Read before looking for work: a message committed after this wakes the sleep below
+                const uint64_t wakeSeq = builder->getWriterWakeSeq();
+
                 // Verify sent messages, check what client receives
                 pollQueue();
 
@@ -259,7 +262,7 @@ namespace OpenLogReplicator {
 
                 if (ctx->softShutdown && ctx->replicatorFinished)
                     break;
-                builder->sleepForWriterWork(this, currentQueueSize, ctx->pollIntervalUs);
+                builder->sleepForWriterWork(this, currentQueueSize > 0, ctx->pollIntervalUs, wakeSeq);
             }
 
             __builtin_prefetch(reinterpret_cast<char*>(msg), 0, 0);

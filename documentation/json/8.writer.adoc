@@ -139,6 +139,8 @@ Valid only for `file`.
 |_integer_, min: 100, max: 3600000000, default: 100000
 |Polling interval in microseconds for the client library to check for delivery or new events.
 
+New output wakes the writer immediately; the interval only bounds how long an idle writer sleeps. While messages await delivery confirmation, the writer checks every 100 µs (or this interval, if smaller), so acknowledgements, buffer release and checkpoint progress are not delayed.
+
 _TIP:_ Smaller values reduce delivery latency but increase CPU usage; larger values increase buffering.
 
 _NOTE:_ Valid for `kafka`, `network`, and `zeromq`.
