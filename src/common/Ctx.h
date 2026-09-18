@@ -35,6 +35,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 #include "types/LobId.h"
 #include "types/Scn.h"
+#include "types/Time.h"
 #include "types/Xid.h"
 
 namespace OpenLogReplicator {
@@ -189,6 +190,13 @@ namespace OpenLogReplicator {
         int64_t dbTimezone{BAD_TIMEZONE};
         int64_t hostTimezone;
         int64_t logTimezone;
+        // Named zone of the database host (e.g. "America/New_York"); empty = fixed offset in
+        // hostTimezone. Redo timestamps are the host's wall clock with no zone, so with a named
+        // zone the UTC offset is resolved per wall-clock hour (DST-aware). The cache packs
+        // (hour bucket << 32 | offset) into one word so readers never see a torn pair.
+        std::string hostTimezoneName;
+        mutable std::atomic<uint64_t> hostTimezoneCache{UINT64_MAX};
+        [[nodiscard]] time_t toEpoch(Time timestamp) const;
 
         // Memory buffers
         uint64_t memoryChunksReadBufferMax{0};

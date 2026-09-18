@@ -59,6 +59,26 @@ namespace OpenLogReplicator {
         hostTimezone = -timezone;
     }
 
+    time_t Ctx::toEpoch(Time timestamp) const {
+        if (hostTimezoneName.empty())
+            return timestamp.toEpoch(hostTimezone);
+
+        // Time packs sec/min/hour/day/month/year, so dividing by 3600 yields a unique key per
+        // wall-clock hour. The offset can only change at a DST transition, i.e. on an hour boundary.
+        const uint64_t hour = timestamp.getVal() / 3600;
+        const uint64_t cached = hostTimezoneCache.load(std::memory_order_relaxed);
+        if ((cached >> 32) == hour)
+            return timestamp.toEpoch(static_cast<int32_t>(cached & 0xFFFFFFFF));
+
+        // Resolve through mktime under the process TZ (set to hostTimezoneName at startup).
+        struct tm tm{};
+        timestamp.toTm(tm);
+        const time_t epoch = mktime(&tm);
+        const int64_t offset = timestamp.toEpoch(0) - epoch;
+        hostTimezoneCache.store((hour << 32) | static_cast<uint32_t>(static_cast<int32_t>(offset)), std::memory_order_relaxed);
+        return epoch;
+    }
+
     Ctx::~Ctx() {
         lobIdToXidMap.clear();
 

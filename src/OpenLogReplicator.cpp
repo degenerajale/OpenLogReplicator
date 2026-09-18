@@ -916,8 +916,19 @@ namespace OpenLogReplicator {
 
             if (readerJson.HasMember("host-timezone")) {
                 const std::string hostTimezone = Ctx::getJsonFieldS(configFileName, Ctx::JSON_PARAMETER_LENGTH, readerJson, "host-timezone");
-                if (!Data::parseTimezone(hostTimezone, ctx->hostTimezone))
-                    throw ConfigurationException(30001, "bad JSON, invalid \"host-timezone\" value: " + hostTimezone + ", expected value: {\"+/-HH:MM\"}");
+                if (!Data::parseTimezone(hostTimezone, ctx->hostTimezone)) {
+                    // Not a fixed offset: treat it as an IANA zone name and let mktime resolve DST.
+                    // glibc silently falls back to UTC for an unknown name, so check the zoneinfo
+                    // file exists before accepting it.
+                    struct stat zoneStat{};
+                    if (hostTimezone.empty() || hostTimezone[0] == '/' || hostTimezone.find("..") != std::string::npos ||
+                            stat(("/usr/share/zoneinfo/" + hostTimezone).c_str(), &zoneStat) != 0)
+                        throw ConfigurationException(30001, "bad JSON, invalid \"host-timezone\" value: " + hostTimezone +
+                                                     ", expected value: {\"+/-HH:MM\"} or a zone name present in /usr/share/zoneinfo");
+                    setenv("TZ", hostTimezone.c_str(), 1);
+                    tzset();
+                    ctx->hostTimezoneName = hostTimezone;
+                }
             }
 
             if (readerJson.HasMember("log-timezone")) {
