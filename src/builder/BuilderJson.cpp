@@ -446,6 +446,38 @@ namespace OpenLogReplicator {
                 append(tz);
                 append('"');
                 break;
+
+            case Format::TIMESTAMP_TZ_FORMAT::UNIX_NANO:
+                // 1712345678123456789
+                if (timestamp < 1000000000 && timestamp > -1000000000)
+                    appendSDec((timestamp * 1000000000L) + fraction);
+                else {
+                    // Big number
+                    const int64_t firstDigits = timestamp / 1000000000;
+                    if (timestamp < 0) {
+                        timestamp = -timestamp;
+                        fraction = -fraction;
+                    }
+                    timestamp %= 1000000000;
+                    appendSDec(firstDigits);
+                    appendDecN<18>((timestamp * 1000000000L) + fraction);
+                }
+                break;
+
+            case Format::TIMESTAMP_TZ_FORMAT::UNIX_MICRO:
+                // 1712345678123457
+                appendSDec((timestamp * 1000000L) + ((fraction + 500) / 1000));
+                break;
+
+            case Format::TIMESTAMP_TZ_FORMAT::UNIX_MILLI:
+                // 1712345678123
+                appendSDec((timestamp * 1000L) + ((fraction + 500000) / 1000000));
+                break;
+
+            case Format::TIMESTAMP_TZ_FORMAT::UNIX:
+                // 1712345678
+                appendSDec(timestamp + ((fraction + 500000000) / 1000000000));
+                break;
         }
     }
 

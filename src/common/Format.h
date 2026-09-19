@@ -164,7 +164,13 @@ namespace OpenLogReplicator {
             ISO8601_NANO,
             ISO8601_MICRO,
             ISO8601_MILLI,
-            ISO8601
+            ISO8601,
+            // Numeric epoch, zone dropped (the instant is the same; the zone is only the
+            // value's presentation hint). Same encoding as TIMESTAMP_FORMAT::UNIX_*.
+            UNIX_NANO,
+            UNIX_MICRO,
+            UNIX_MILLI,
+            UNIX
         };
 
         enum class TRANSACTION_TYPE : unsigned char {

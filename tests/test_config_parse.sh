@@ -171,6 +171,12 @@ run_test no-topics "$WORKDIR/no-topics.json" any 'adding target: KAFKA'
 sed 's/"alias": "SOURCE",/"alias": "SOURCE",\n    "flags": 2,/' "$WORKDIR/topics-good.json" >"$WORKDIR/topics-schemaless.json"
 run_test topics-schemaless "$WORKDIR/topics-schemaless.json" any 'Kafka topic mapping: HR.EMPLOYEES -> hr_employees'
 
+# timestamp-tz: numeric epoch options 12..15 accepted, 16 rejected
+sed 's/"format": {"type": "json"}/"format": {"type": "json", "timestamp-tz": 13}/' "$WORKDIR/topics-good.json" >"$WORKDIR/tstz-13.json"
+run_test tstz-13 "$WORKDIR/tstz-13.json" any 'Kafka topic mapping: HR.EMPLOYEES -> hr_employees'
+sed 's/"format": {"type": "json"}/"format": {"type": "json", "timestamp-tz": 16}/' "$WORKDIR/topics-good.json" >"$WORKDIR/tstz-16.json"
+run_test tstz-16 "$WORKDIR/tstz-16.json" nonzero 'invalid "timestamp-tz" value: 16, expected: one of {0 .. 15}'
+
 if [ $FAILED -ne 0 ]; then
     echo "config-parse test FAILED"
     exit 1
