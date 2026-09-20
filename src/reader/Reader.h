@@ -21,6 +21,10 @@ If not, see <http://www.gnu.org/licenses/>. */
 #define READER_H_
 
 #include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 #include "../common/Thread.h"
@@ -92,8 +96,8 @@ namespace OpenLogReplicator {
         Scn nextScnHeader{Scn::none()};
         Time nextTime{0};
         uint blockSize{0};
-        uint64_t sumRead{0};
-        uint64_t sumTime{0};
+        std::atomic<uint64_t> sumRead{0};
+        std::atomic<uint64_t> sumTime{0};
         uint64_t bufferScan{0};
         uint lastRead{0};
         time_ut lastReadTime{0};
@@ -109,6 +113,45 @@ namespace OpenLogReplicator {
         std::condition_variable condReaderSleeping;
         std::condition_variable condParserSleeping;
 
+        // Parallel reader (read-parallel > 1; online logs only in direct IO mode,
+        // archived logs also in buffered mode). "read-parallel" requests may be in
+        // flight ahead of bufferEnd; bufferScan is the first byte not yet requested
+        // from disk. See Reader::read1Parallel. redoRead() skips the per-context timers
+        // when called from a pool worker, so THREAD_INFO accounting covers the reader
+        // thread only.
+        struct ReadInFlight {
+            uint8_t* buffer{nullptr};
+            uint64_t offset{0};
+            uint size{0};
+            int result{0};
+            int err{0};
+            bool done{false};
+        };
+
+        struct ReadRequest {
+            uint8_t* buffer{nullptr};
+            uint64_t offset{0};
+            uint size{0};
+            uint64_t seq{0};
+        };
+
+        uint readParallel{1};
+        std::vector<ReadInFlight> readInFlight;
+        std::deque<ReadRequest> readQueue;
+        std::vector<std::thread> readWorkers;
+        std::mutex readMtx;
+        std::condition_variable readQueueCond;
+        std::condition_variable readDoneCond;
+        uint64_t readHead{0};
+        uint64_t readTail{0};
+        uint readInFlightCnt{0};
+        bool readStop{false};
+
+        void startReadPool();
+        void stopReadPool();
+        void readWorker();
+        void drainReads();
+
         virtual void redoClose() = 0;
         virtual REDO_CODE redoOpen() = 0;
         virtual int redoRead(uint8_t* buf, uint64_t offset, uint size) = 0;
@@ -117,6 +160,8 @@ namespace OpenLogReplicator {
         REDO_CODE checkBlockHeader(uint8_t* buffer, typeBlk blockNumber, bool showHint);
         REDO_CODE reloadHeader();
         bool read1();
+        bool read1Single();
+        bool read1Parallel();
         bool read2();
         void mainLoop();
 

@@ -171,6 +171,13 @@ run_test no-topics "$WORKDIR/no-topics.json" any 'adding target: KAFKA'
 sed 's/"alias": "SOURCE",/"alias": "SOURCE",\n    "flags": 2,/' "$WORKDIR/topics-good.json" >"$WORKDIR/topics-schemaless.json"
 run_test topics-schemaless "$WORKDIR/topics-schemaless.json" any 'Kafka topic mapping: HR.EMPLOYEES -> hr_employees'
 
+# read-parallel: a small memory block (max-mb 32 derives a 4 MB read buffer) must still be
+# accepted when read-parallel is not set (default fitted down), and rejected when set too high
+sed 's/"memory": {"min-mb": 64, "max-mb": 1024}/"memory": {"min-mb": 32, "max-mb": 32}/' "$WORKDIR/topics-good.json" >"$WORKDIR/rp-small-default.json"
+run_test rp-small-default "$WORKDIR/rp-small-default.json" any 'Kafka topic mapping: HR.EMPLOYEES -> hr_employees'
+sed 's/"memory": {"min-mb": 64, "max-mb": 1024}/"memory": {"min-mb": 32, "max-mb": 32}/; s/"alias": "SOURCE",/"alias": "SOURCE",\n    "read-parallel": 4,/' "$WORKDIR/topics-good.json" >"$WORKDIR/rp-small-explicit.json"
+run_test rp-small-explicit "$WORKDIR/rp-small-explicit.json" nonzero 'is too small for "read-parallel" = 4'
+
 # host-timezone: a zone name must be a regular TZif file - a directory and a metadata file are rejected
 sed 's/"server": "\/\/localhost:1521\/NOSERVICE"/"server": "\/\/localhost:1521\/NOSERVICE", "host-timezone": "America"/' "$WORKDIR/topics-good.json" >"$WORKDIR/tz-dir.json"
 run_test tz-dir "$WORKDIR/tz-dir.json" nonzero 'invalid "host-timezone" value: America'
@@ -178,6 +185,13 @@ sed 's/"server": "\/\/localhost:1521\/NOSERVICE"/"server": "\/\/localhost:1521\/
 run_test tz-tab "$WORKDIR/tz-tab.json" nonzero 'invalid "host-timezone" value: zone.tab'
 sed 's/"server": "\/\/localhost:1521\/NOSERVICE"/"server": "\/\/localhost:1521\/NOSERVICE", "host-timezone": "America\/New_York"/' "$WORKDIR/topics-good.json" >"$WORKDIR/tz-ok.json"
 run_test tz-ok "$WORKDIR/tz-ok.json" any 'Kafka topic mapping: HR.EMPLOYEES -> hr_employees'
+
+# read-parallel: the reader reserve must fit the total memory reservation, explicit values are rejected, the default is fitted
+sed 's/"memory": {"min-mb": 64, "max-mb": 1024}/"memory": {"min-mb": 32, "max-mb": 32, "read-buffer-max-mb": 18, "write-buffer-min-mb": 8, "unswap-buffer-min-mb": 8}/; s/"alias": "SOURCE",/"alias": "SOURCE",\n    "read-parallel": 16,/' "$WORKDIR/topics-good.json" >"$WORKDIR/rp-total-explicit.json"
+run_test rp-total-explicit "$WORKDIR/rp-total-explicit.json" nonzero 'is too small for "read-parallel" = 16'
+sed 's/"memory": {"min-mb": 64, "max-mb": 1024}/"memory": {"min-mb": 32, "max-mb": 32, "read-buffer-max-mb": 18, "write-buffer-min-mb": 8, "unswap-buffer-min-mb": 8}/' "$WORKDIR/topics-good.json" >"$WORKDIR/rp-total-default.json"
+run_test rp-total-default "$WORKDIR/rp-total-default.json" any 'Kafka topic mapping: HR.EMPLOYEES -> hr_employees'
+
 # timestamp-tz: numeric epoch options 12..15 accepted, 16 rejected
 sed 's/"format": {"type": "json"}/"format": {"type": "json", "timestamp-tz": 13}/' "$WORKDIR/topics-good.json" >"$WORKDIR/tstz-13.json"
 run_test tstz-13 "$WORKDIR/tstz-13.json" any 'Kafka topic mapping: HR.EMPLOYEES -> hr_employees'
