@@ -244,4 +244,10 @@ if (WITH_TESTS)
     target_link_libraries(test_reader_parallel LibReader LibCommon)
     olr_link_dependencies(test_reader_parallel)
     olr_add_test(test_reader_parallel test_reader_parallel)
+
+    add_executable(test_builder_partial tests/test_builder_partial.cpp)
+    target_link_libraries(test_builder_partial
+            LibCommon LibReplicator LibLocales LibBuilder LibParser LibReader LibMetadata LibState LibWriter)
+    olr_link_dependencies(test_builder_partial)
+    olr_add_test(test_builder_partial test_builder_partial)
 endif ()

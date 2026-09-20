@@ -52,10 +52,10 @@ See comment for warning 60002.
 Rollback record could not be matched to an open transaction.
 Remediation: Usually benign if rollback started before replication; confirm retention window.
 
-==== code 60011: "skipping transaction with no beginning: <details>"
+==== code 60011: "skipping transaction with no beginning: <details>" / "skipping transaction dropped for exceeding transaction-max-mb: xid: <xid> commit-scn: <scn>"
 
-Transaction began prior to current processing window and lacks a recorded start.
-Remediation: Ensure redo retention covers the transaction or adjust start SCN.
+Transaction began prior to current processing window and lacks a recorded start, or its buffered content was dropped for exceeding `transaction-max-mb`. Its content is not emitted; with JSON output a `"p"` marker message with the commit position and xid is sent instead.
+Remediation: Expected for transactions open at start-scn. Ensure redo retention covers the transaction or adjust start SCN, or let the consumer recover the rows via `FLASHBACK_TRANSACTION_QUERY` using the xid.
 
 ==== code 60012: "aborting log dump"
 

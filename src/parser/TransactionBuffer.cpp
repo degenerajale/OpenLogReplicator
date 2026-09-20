@@ -37,6 +37,7 @@ namespace OpenLogReplicator {
 
     TransactionBuffer::~TransactionBuffer() {
         skipXidList.clear();
+        sizeDroppedXidList.clear();
         dumpXidList.clear();
         brokenXidMapList.clear();
 

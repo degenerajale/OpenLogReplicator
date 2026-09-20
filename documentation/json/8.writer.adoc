@@ -37,9 +37,9 @@ Keys are matched against the data dictionary names exactly, so a quoted identifi
 
 * Keys are matched literally - no regex patterns, no placeholders, no auto-derivation of topic names.
 * Several tables may share one topic (fan-in).
-* Tables not listed here, and all control frames (begin, commit, checkpoint), go to the `topic` default topic.
+* Tables not listed here, and all control frames (begin, commit, checkpoint), go to the `topic` default topic. The exception is the `"p"` partial-commit marker (source flag `0x0400`), which is copied to every mapped topic and the default topic.
 * DDL on a mapped table goes to that table's topic, so a consumer of the table sees its schema changes in its own stream; DDL on objects that are not mapped goes to the default topic.
-* Ordering: Kafka orders messages only within a partition, and OLR does not choose partitions. Row messages with a key (`tag` columns) are partitioned by that key; messages without a key (DDL, rows of tables without tags) are spread by librdkafka's default partitioner. A table's rows and its DDL are therefore in commit order with each other only on a single-partition topic: use one partition wherever that order matters, for example to rebuild a table's state from the stream.
+* Ordering: Kafka orders messages only within a partition, and OLR does not choose partitions. Row messages with a key (`tag` columns) are partitioned by that key; messages without a key (DDL, `"p"` markers, rows of tables without tags) are spread by librdkafka's default partitioner. A table's rows, its DDL and the `"p"` markers are therefore in commit order with each other only on a single-partition topic: use one partition wherever that order matters, for example to rebuild a table's state from the stream.
 * Not valid together with the `full` message format, since one message can contain rows of several tables.
 * Not valid for writer types other than `kafka`.
 

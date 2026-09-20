@@ -65,6 +65,9 @@ namespace OpenLogReplicator {
 
     public:
         std::set<Xid> skipXidList;
+        // Transactions dropped for exceeding transaction-max-mb (also in skipXidList, which also
+        // holds the xids excluded by filter.skip-xid); reported at commit with flag 0x0400
+        std::set<Xid> sizeDroppedXidList;
         std::set<Xid> dumpXidList;
         std::set<XidMap> brokenXidMapList;
         std::string dumpPath;

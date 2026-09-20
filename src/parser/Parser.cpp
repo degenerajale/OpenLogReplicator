@@ -744,6 +744,7 @@ namespace OpenLogReplicator {
         if (ctx->transactionSizeMax > 0 &&
             transaction->size + redoLogRecord1->size + TransactionBuffer::ROW_HEADER_TOTAL >= ctx->transactionSizeMax) {
             transactionBuffer->skipXidList.insert(transaction->xid);
+            transactionBuffer->sizeDroppedXidList.insert(transaction->xid);
             transactionBuffer->dropTransaction(redoLogRecord1->xid, redoLogRecord1->conId);
             transaction->purge(ctx);
             if (transaction == lastTransaction)
@@ -850,6 +851,7 @@ namespace OpenLogReplicator {
         if (ctx->transactionSizeMax > 0 && transaction->size + redoLogRecord1->size + TransactionBuffer::ROW_HEADER_TOTAL >= ctx->transactionSizeMax) {
             transaction->log(ctx, "siz ", redoLogRecord1);
             transactionBuffer->skipXidList.insert(transaction->xid);
+            transactionBuffer->sizeDroppedXidList.insert(transaction->xid);
             transactionBuffer->dropTransaction(redoLogRecord1->xid, redoLogRecord1->conId);
             transaction->purge(ctx);
             if (transaction == lastTransaction)
@@ -937,6 +939,24 @@ namespace OpenLogReplicator {
         auto skipXidListIt = transactionBuffer->skipXidList.find(redoLogRecord1->xid);
         if (unlikely(skipXidListIt != transactionBuffer->skipXidList.end())) {
             transactionBuffer->skipXidList.erase(skipXidListIt);
+            // If its content was dropped for exceeding transaction-max-mb (not excluded by
+            // filter.skip-xid), it is reported like a transaction whose begin was never read
+            // (flag 0x0400) so a consumer can recover it.
+            const bool sizeDropped = transactionBuffer->sizeDroppedXidList.erase(redoLogRecord1->xid) > 0;
+            if (sizeDropped && ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_INCOMPLETE_TRANSACTIONS) &&
+                (redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) == 0 && redoLogRecord1->scn > metadata->firstDataScn) {
+                if (ctx->metrics != nullptr)
+                    ctx->metrics->emitTransactionsCommitPartial(1);
+                ctx->warning(60011, "skipping transaction dropped for exceeding transaction-max-mb: xid: " + redoLogRecord1->xid.toString() +
+                             " commit-scn: " + redoLogRecord1->scn.toString());
+                ctx->parserThread->contextSet(Thread::CONTEXT::TRAN, Thread::REASON::TRAN);
+                {
+                    std::unique_lock const lckTransaction(metadata->mtxTransaction);
+                    builder->processPartial(redoLogRecord1->xid, redoLogRecord1->thread, redoLogRecord1->sequence, redoLogRecord1->scn,
+                                            redoLogRecord1->timestamp);
+                }
+                ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
+            }
             return;
         }
 
@@ -992,6 +1012,13 @@ namespace OpenLogReplicator {
                         ctx->metrics->emitTransactionsCommitPartial(1);
                 }
                 ctx->warning(60011, "skipping transaction with no beginning: " + transaction->toString(ctx));
+                // Only reachable with SHOW_INCOMPLETE_TRANSACTIONS (findTransaction above adds
+                // the object only then). Rolled-back and system transactions emit nothing, as
+                // their complete counterparts do.
+                if (!transaction->rollback && !transaction->system) {
+                    transaction->flushPartial(metadata, builder);
+                    ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
+                }
             }
         } else {
             if (ctx->metrics != nullptr) {
@@ -1101,6 +1128,7 @@ namespace OpenLogReplicator {
             transaction->log(ctx, "siz1", redoLogRecord1);
             transaction->log(ctx, "siz2", redoLogRecord2);
             transactionBuffer->skipXidList.insert(transaction->xid);
+            transactionBuffer->sizeDroppedXidList.insert(transaction->xid);
             transactionBuffer->dropTransaction(redoLogRecord1->xid, redoLogRecord1->conId);
             transaction->purge(ctx);
             if (transaction == lastTransaction)
@@ -1369,6 +1397,7 @@ namespace OpenLogReplicator {
         if (ctx->transactionSizeMax > 0 &&
             transaction->size + redoLogRecord1->size + redoLogRecord2->size + TransactionBuffer::ROW_HEADER_TOTAL >= ctx->transactionSizeMax) {
             transactionBuffer->skipXidList.insert(transaction->xid);
+            transactionBuffer->sizeDroppedXidList.insert(transaction->xid);
             transactionBuffer->dropTransaction(redoLogRecord1->xid, redoLogRecord1->conId);
             transaction->purge(ctx);
             if (transaction == lastTransaction)

@@ -446,6 +446,7 @@ namespace OpenLogReplicator {
 
         void initialize() override;
         void processCommit() override;
+        void processPartialMessage() override;
         void processCheckpoint(Seq sequence, Scn scn, Time timestamp, FileOffset fileOffset, bool redo) override;
     };
 }

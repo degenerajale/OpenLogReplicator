@@ -710,6 +710,34 @@ namespace OpenLogReplicator {
         }
     }
 
+    // Commit of a transaction whose begin record was never read (already open when replication
+    // started, or dropped for exceeding transaction-max-mb): its content is unknown and cannot be
+    // emitted. Only the commit position and the xid go out; the begin fields are set to the
+    // commit so the header shows no invented begin.
+    //
+    // The message position (lwnScn/lwnIdx, c_scn/c_idx) continues from the previous message, so
+    // the marker does not move it. The first marker of a run, with nothing before it, takes the
+    // commit SCN; the checkpoint message that ends every LWN moves the position to the LWN SCN
+    // either way.
+    void Builder::processPartial(Xid xid, uint16_t newThread, Seq newCommitSequence, Scn newCommitScn, Time newCommitTimestamp) {
+        lastXid = xid;
+        thread = newThread;
+        beginSequence = newCommitSequence;
+        beginScn = newCommitScn;
+        beginTimestamp = newCommitTimestamp;
+        commitSequence = newCommitSequence;
+        commitScn = newCommitScn;
+        commitTimestamp = newCommitTimestamp;
+        if (lwnScn == Scn::none()) {
+            // Nothing emitted yet in this run: no earlier position to continue from
+            lwnScn = commitScn;
+            lwnIdx = 0;
+        }
+        newTran = false;
+
+        processPartialMessage();
+    }
+
     // 0x05010B0B
     void Builder::processInsertMultiple(Seq sequence, Scn scn, Time timestamp, LobCtx* lobCtx, const XmlCtx* xmlCtx, const RedoLogRecord* redoLogRecord1,
                                         const RedoLogRecord* redoLogRecord2, bool system, bool schema, bool dump) {
