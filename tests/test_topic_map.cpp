@@ -83,8 +83,28 @@ static void testCaseFolding() {
     topicMap.setDefault("olr_default");
     topicMap.add("hr.Employees", "hr_employees");
 
-    CHECK(topicMap.idFor("HR", "EMPLOYEES") != TopicMap::DEFAULT_ID);
+    // A lower/mixed-case key routes the exact (quoted) name and, as an alias, the uppercase
+    // name Oracle stores for unquoted identifiers
+    CHECK(topicMap.idFor("hr", "Employees") != TopicMap::DEFAULT_ID);
+    CHECK(topicMap.idFor("HR", "EMPLOYEES") == topicMap.idFor("hr", "Employees"));
     CHECK(topicMap.mapping().find("HR.EMPLOYEES") != topicMap.mapping().end());
+
+    // Quoted identifiers with different case are distinct tables and route independently
+    TopicMap topicMap2;
+    topicMap2.setDefault("olr_default");
+    topicMap2.add("hr.Employees", "quoted_topic");
+    topicMap2.add("HR.EMPLOYEES", "upper_topic");
+    CHECK(topicMap2.idFor("hr", "Employees") != topicMap2.idFor("HR", "EMPLOYEES"));
+    CHECK(topicMap2.names()[topicMap2.idFor("HR", "EMPLOYEES")] == "upper_topic");
+    CHECK(topicMap2.names()[topicMap2.idFor("hr", "Employees")] == "quoted_topic");
+
+    // The explicit uppercase key wins regardless of the order it is given in
+    TopicMap topicMap3;
+    topicMap3.setDefault("olr_default");
+    topicMap3.add("HR.EMPLOYEES", "upper_topic");
+    topicMap3.add("hr.Employees", "quoted_topic");
+    CHECK(topicMap3.names()[topicMap3.idFor("HR", "EMPLOYEES")] == "upper_topic");
+    CHECK(topicMap3.names()[topicMap3.idFor("hr", "Employees")] == "quoted_topic");
 }
 
 static void testTopicNameValidation() {

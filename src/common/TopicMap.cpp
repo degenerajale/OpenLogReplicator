@@ -31,15 +31,15 @@ namespace OpenLogReplicator {
 
         validateTopicName(topicName, "\"topics\" value for key \"" + ownerTable + "\"");
 
-        // Oracle stores unquoted identifiers uppercase
-        for (char& character: owner)
-            if (character >= 'a' && character <= 'z')
-                character = static_cast<char>(character - 'a' + 'A');
-        for (char& character: table)
-            if (character >= 'a' && character <= 'z')
-                character = static_cast<char>(character - 'a' + 'A');
-
+        // The key is matched against the dictionary names exactly, so a quoted identifier
+        // ("hr"."Employees") is written with its real case. Unquoted identifiers are stored
+        // uppercase by Oracle, so an uppercase alias is registered as well for keys written in
+        // lower/mixed case; an explicit key always wins over an alias.
         std::string key = owner + "." + table;
+        std::string upperKey = key;
+        for (char& character: upperKey)
+            if (character >= 'a' && character <= 'z')
+                character = static_cast<char>(character - 'a' + 'A');
 
         // Reuse the id when the topic name was already seen (fan-in, or the default topic)
         uint16_t id;
@@ -57,13 +57,19 @@ namespace OpenLogReplicator {
 
         const auto& tableIt = byTable.find(key);
         if (tableIt != byTable.end()) {
-            if (tableIt->second != id)
+            if (tableIt->second != id && (aliasKeys.find(key) == aliasKeys.end()))
                 throw ConfigurationException(30001, "bad JSON, invalid \"topics\" key: \"" + key +
                                              "\", expected: not defined multiple times with different topics");
-            return;
-        }
+            // An explicit key replaces an alias registered earlier for the same name
+            byTable[key] = id;
+            aliasKeys.erase(key);
+        } else
+            byTable.emplace(key, id);
 
-        byTable.emplace(std::move(key), id);
+        if (upperKey != key && byTable.find(upperKey) == byTable.end()) {
+            byTable.emplace(upperKey, id);
+            aliasKeys.insert(upperKey);
+        }
     }
 
     uint16_t TopicMap::idFor(const std::string& owner, const std::string& name) const {

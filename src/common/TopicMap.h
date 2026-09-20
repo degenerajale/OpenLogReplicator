@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace OpenLogReplicator {
@@ -22,7 +23,7 @@ namespace OpenLogReplicator {
         // Reserve id 0 for the writer's default `topic`. Call once, before add().
         void setDefault(std::string topicName);
 
-        // ownerTable is "OWNER.TABLE" as written in the config; uppercased here.
+        // ownerTable is "OWNER.TABLE" as written in the config; matched exactly, plus an uppercase alias.
         // Two keys may map to the same topic name - they will resolve to the same id.
         void add(const std::string& ownerTable, const std::string& topicName);
         // Schema-build path. Returns DEFAULT_ID for any table not in the map.
@@ -45,7 +46,8 @@ namespace OpenLogReplicator {
     protected:
         std::vector<std::string> topicNames;                // id -> name, index 0 = default
         std::unordered_map<std::string, uint16_t> byName;   // name -> id, for fan-in dedupe
-        std::unordered_map<std::string, uint16_t> byTable;  // "OWNER.TABLE" -> id
+        std::unordered_map<std::string, uint16_t> byTable;  // "OWNER.TABLE" -> id, exact case
+        std::unordered_set<std::string> aliasKeys;           // uppercase aliases of lower/mixed-case keys
 
         static void validateTopicName(const std::string& topicName, const std::string& entry);
     };

@@ -32,7 +32,8 @@ _NOTE:_ Valid only for `kafka` writer type.
 |`topics`
 |_map_ (string -> string), optional
 |Direct table-to-topic mapping for the `kafka` writer.
-Each key is a literal `OWNER.TABLE` table name (uppercased on load), each value the name (max length: 249) of the Kafka topic that table's changes are published to.
+Each key is a literal `OWNER.TABLE` table name, each value the name (max length: 249) of the Kafka topic that table's changes are published to.
+Keys are matched against the data dictionary names exactly, so a quoted identifier (`"hr"."Employees"`) is written with its real case; a key written in lower or mixed case also matches the uppercase name Oracle stores for unquoted identifiers, unless that uppercase name is mapped explicitly.
 
 * Keys are matched literally - no regex patterns, no placeholders, no auto-derivation of topic names.
 * Several tables may share one topic (fan-in).
