@@ -713,6 +713,12 @@ namespace OpenLogReplicator {
             }
         }
 
+        // Epoch nanoseconds as a decimal number, exact for any seconds value (see Data::epochNanoToString).
+        void appendEpochNano(int64_t seconds, uint64_t fraction) {
+            char buffer[40];
+            appendArr(buffer, Data::epochNanoToString(seconds, fraction, buffer));
+        }
+
         void appendSDec(int64_t value) {
             char buffer[22];
             uint size = 0;

@@ -187,6 +187,56 @@ namespace OpenLogReplicator {
         return result - UNIX_BC1970_01_01 - tz; // adjust to 1970 epoch, 718,798 days (year 0 does not exist)
     }
 
+    uint64_t Data::epochNanoToString(int64_t seconds, uint64_t fraction, char* buffer) {
+        // Split into sign, magnitude seconds and magnitude fraction. For negative seconds with a
+        // fraction, borrow one second: -1000000000 s + 0.5 s = -(999999999 s + 0.5 s).
+        uint64_t pos = 0;
+        uint64_t magSeconds;
+        uint64_t magFraction;
+        if (seconds < 0) {
+            buffer[pos++] = '-';
+            if (fraction > 0) {
+                magSeconds = static_cast<uint64_t>(-(seconds + 1));
+                magFraction = 1000000000 - fraction;
+            } else {
+                magSeconds = static_cast<uint64_t>(-seconds);
+                magFraction = 0;
+            }
+        } else {
+            magSeconds = static_cast<uint64_t>(seconds);
+            magFraction = fraction;
+        }
+
+        // Two base-1e9 groups: high = seconds / 1e9, low = (seconds % 1e9) * 1e9 + fraction
+        // (< 1e18, printed zero-padded to 18 digits when a high group is present).
+        const uint64_t high = magSeconds / 1000000000;
+        uint64_t low = ((magSeconds % 1000000000) * 1000000000) + magFraction;
+
+        char digits[40];
+        uint64_t n = 0;
+        if (high > 0) {
+            for (int i = 0; i < 18; ++i) {
+                digits[n++] = static_cast<char>('0' + (low % 10));
+                low /= 10;
+            }
+            uint64_t h = high;
+            while (h > 0) {
+                digits[n++] = static_cast<char>('0' + (h % 10));
+                h /= 10;
+            }
+        } else {
+            if (low == 0)
+                digits[n++] = '0';
+            while (low > 0) {
+                digits[n++] = static_cast<char>('0' + (low % 10));
+                low /= 10;
+            }
+        }
+        while (n > 0)
+            buffer[pos++] = digits[--n];
+        return pos;
+    }
+
     uint64_t Data::epochToIso8601(time_t timestamp, char* buffer, bool addT, bool addZ) {
         // (-)YYYY-MM-DD hh:mm:ss or (-)YYYY-MM-DDThh:mm:ssZ
 
