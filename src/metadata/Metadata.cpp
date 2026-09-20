@@ -419,7 +419,7 @@ namespace OpenLogReplicator {
                 return;
 
             if (lastSequence == sequence && !force &&
-                (static_cast<uint64_t>(checkpointTime.toEpoch(ctx->hostTimezone) - lastCheckpointTime.toEpoch(ctx->hostTimezone)) < ctx->checkpointIntervalS) &&
+                (static_cast<uint64_t>(ctx->toEpoch(checkpointTime) - ctx->toEpoch(lastCheckpointTime)) < ctx->checkpointIntervalS) &&
                 (checkpointBytes - lastCheckpointBytes) / 1024 / 1024 < ctx->checkpointIntervalMb)
                 return;
 

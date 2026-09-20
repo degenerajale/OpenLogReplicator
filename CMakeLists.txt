@@ -173,3 +173,52 @@ if (WITH_PROTOBUF)
 endif ()
 
 target_include_directories(OpenLogReplicator PUBLIC "${PROJECT_BINARY_DIR}")
+
+# Link a test or benchmark executable against every optional dependency that is compiled
+# in. The Lib* targets are OBJECT libraries, so the OCI, Kafka, Prometheus, Protobuf and
+# ZeroMQ references inside them must be resolved by each executable itself, exactly as
+# OpenLogReplicator does above.
+function(olr_link_dependencies target)
+    target_link_libraries(${target} Threads::Threads)
+    if (WITH_OCI)
+        target_link_libraries(${target} clntshcore nnz clntsh)
+    endif ()
+    if (WITH_RDKAFKA)
+        if (WITH_STATIC)
+            target_link_libraries(${target} static_rdkafka)
+        else ()
+            target_link_libraries(${target} rdkafka++ rdkafka)
+        endif ()
+    endif ()
+    if (WITH_PROMETHEUS)
+        target_link_libraries(${target} prometheus-cpp-core prometheus-cpp-pull)
+    endif ()
+    if (WITH_PROTOBUF)
+        # LibCommon carries the generated protobuf code and LibWriter the stream writer
+        target_link_libraries(${target} LibStream)
+        if (WITH_STATIC)
+            target_link_libraries(${target} static_protobuf)
+        else ()
+            target_link_libraries(${target} protobuf)
+        endif ()
+        if (WITH_ZEROMQ)
+            target_link_libraries(${target} zmq)
+        endif ()
+    endif ()
+endfunction()
+
+# Register a test: olr_add_test(<name> <executable> [args...]). The Instant Client and its
+# bundled libaio must be on the loader path when OCI is compiled in.
+function(olr_add_test name)
+    add_test(NAME ${name} COMMAND ${ARGN})
+    if (WITH_OCI)
+        set_tests_properties(${name} PROPERTIES ENVIRONMENT "LD_LIBRARY_PATH=${WITH_OCI}:${WITH_OCI}/libaio:$ENV{LD_LIBRARY_PATH}")
+    endif ()
+endfunction()
+
+if (WITH_TESTS)
+    add_executable(test_timezone tests/test_timezone.cpp)
+    target_link_libraries(test_timezone LibCommon)
+    olr_link_dependencies(test_timezone)
+    olr_add_test(test_timezone test_timezone)
+endif ()

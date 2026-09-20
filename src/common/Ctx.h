@@ -35,6 +35,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 #include "types/LobId.h"
 #include "types/Scn.h"
+#include "types/Time.h"
 #include "types/Xid.h"
 
 namespace OpenLogReplicator {
@@ -189,6 +190,27 @@ namespace OpenLogReplicator {
         int64_t dbTimezone{BAD_TIMEZONE};
         int64_t hostTimezone;
         int64_t logTimezone;
+        // Named zone of the database host (e.g. "America/New_York"); empty = fixed offset in
+        // hostTimezone. Redo timestamps are the host's wall clock with no zone, so with a named
+        // zone the UTC offset is resolved per wall-clock minute (DST-aware). The cache packs
+        // (minute bucket << 32 | offset) into one word so readers never see a torn pair.
+        std::string hostTimezoneName;
+        mutable std::atomic<uint64_t> hostTimezoneCache{UINT64_MAX};
+        // Clocks set back (DST fall-back): the wall-clock period that repeats (01:00-01:59 in
+        // America/New_York) is ambiguous in redo. The parser passes every LWN timestamp through
+        // noteRedoTime, which detects the redo clock jumping back into such a period and from then
+        // on marks times of that period as their second occurrence (Time::isSecondOccurrence).
+        // toEpoch resolves a repeated time by that mark, so the decision is taken when the redo is
+        // read, not when a buffered transaction is converted. Parser thread only.
+        int64_t lastRedoWall{INT64_MIN};
+        int64_t foldWallStart{INT64_MIN};   // repeated period, wall time read as UTC: [start, end)
+        int64_t foldWallEnd{INT64_MIN};
+        [[nodiscard]] time_t toEpoch(Time timestamp) const;
+        [[nodiscard]] Time noteRedoTime(Time timestamp);
+        // For a time read outside the LWN order (the next-time of a redo log header): marked like an
+        // LWN timestamp, without moving the tracking
+        [[nodiscard]] Time markRedoTime(Time timestamp);
+        void detectFold(Time timestamp, int64_t jumpBack);
 
         // Memory buffers
         uint64_t memoryChunksReadBufferMax{0};

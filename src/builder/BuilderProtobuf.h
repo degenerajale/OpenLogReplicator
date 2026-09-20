@@ -93,7 +93,7 @@ namespace OpenLogReplicator {
         }
 
         void appendHeader(Scn scn, Time timestamp, bool first, bool showDb, bool showXid) {
-            time_t tm = timestamp.toEpoch(metadata->ctx->hostTimezone);
+            time_t tm = metadata->ctx->toEpoch(timestamp);
 
             redoResponsePB->set_code(pb::ResponseCode::PAYLOAD);
             if (first || format.isScnTypeDml()) {

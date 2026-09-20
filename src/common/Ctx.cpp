@@ -59,6 +59,157 @@ namespace OpenLogReplicator {
         hostTimezone = -timezone;
     }
 
+    namespace {
+        // Both UTC instants a host wall-clock time can denote under the process TZ. For a time
+        // in a repeated (fall-back) hour both are valid and differ; otherwise they are equal.
+        struct WallCandidates {
+            time_t early;
+            time_t late;
+            bool valid;
+        };
+
+        bool sameWall(time_t epoch, const struct tm& wall) {
+            struct tm back{};
+            if (localtime_r(&epoch, &back) == nullptr)
+                return false;
+            return back.tm_year == wall.tm_year && back.tm_mon == wall.tm_mon && back.tm_mday == wall.tm_mday &&
+                    back.tm_hour == wall.tm_hour && back.tm_min == wall.tm_min && back.tm_sec == wall.tm_sec;
+        }
+
+        WallCandidates wallCandidates(Time timestamp) {
+            struct tm wall{};
+            timestamp.toTm(wall);
+
+            // The UTC offsets in effect a day before and a day after this wall time: at most one
+            // transition lies in between (tzdata never has two within two days). Each offset
+            // gives a candidate instant, kept only if it maps back to the same wall time. A
+            // repeated hour keeps both, a normal time one, a skipped one (spring-forward) none.
+            // Offsets are compared, not the DST flag: some backward shifts are standard-time
+            // changes (Asia/Colombo 1996, +06:30 -> +06:00).
+            const time_t wallAsUtc = timestamp.toEpoch(0);
+            time_t found[2];
+            int count = 0;
+            for (const time_t probe: {wallAsUtc - 86400, wallAsUtc + 86400}) {
+                struct tm probeTm{};
+                if (localtime_r(&probe, &probeTm) == nullptr)
+                    continue;
+                const time_t epoch = wallAsUtc - probeTm.tm_gmtoff;
+                if (!sameWall(epoch, wall))
+                    continue;
+                if (count == 0 || found[0] != epoch)
+                    found[count++] = epoch;
+            }
+            if (count == 2)
+                return {std::min(found[0], found[1]), std::max(found[0], found[1]), true};
+            if (count == 1)
+                return {found[0], found[0], true};
+
+            // Not a valid wall time (skipped by spring-forward, which redo never contains)
+            struct tm any = wall;
+            any.tm_isdst = -1;
+            const time_t epoch = mktime(&any);
+            return {epoch, epoch, epoch != static_cast<time_t>(-1)};
+        }
+    }
+
+    time_t Ctx::toEpoch(Time timestamp) const {
+        if (hostTimezoneName.empty())
+            return timestamp.toEpoch(hostTimezone);
+
+        // Time packs sec/min/hour/day/month/year, so dividing by 60 yields a unique key per
+        // wall-clock minute. Zone transitions are not always on the hour (Asia/Colombo 1996-10-26
+        // moved at 00:30, Lord Howe shifts by 30 minutes), but every transition in tzdata since the
+        // local-mean-time era is on a minute boundary, so a per-minute offset is exact for redo
+        // timestamps; it costs one resolution per minute of redo time. The occurrence mark is part
+        // of the key: the same minute of a repeated hour has two offsets.
+        const uint64_t key = ((static_cast<uint64_t>(timestamp.getVal()) / 60) << 1) | (timestamp.isSecondOccurrence() ? 1 : 0);
+        const uint64_t cached = hostTimezoneCache.load(std::memory_order_relaxed);
+        if ((cached >> 32) == key)
+            return timestamp.toEpoch(static_cast<int32_t>(cached & 0xFFFFFFFF));
+
+        // Resolve under the process TZ (set to hostTimezoneName at startup). A time in the period
+        // repeated when clocks are set back has two instants: the first unless the parser marked
+        // it as read after the redo clock went back into that period (noteRedoTime).
+        const WallCandidates candidates = wallCandidates(timestamp);
+        if (unlikely(!candidates.valid))
+            return timestamp.toEpoch(hostTimezone);
+        const time_t epoch = timestamp.isSecondOccurrence() ? candidates.late : candidates.early;
+
+        const int64_t offset = timestamp.toEpoch(0) - epoch;
+        hostTimezoneCache.store((key << 32) | static_cast<uint32_t>(static_cast<int32_t>(offset)), std::memory_order_relaxed);
+        return epoch;
+    }
+
+    Time Ctx::noteRedoTime(Time timestamp) {
+        if (hostTimezoneName.empty())
+            return timestamp;
+
+        // Redo timestamps from one thread do not go back, except at a fall-back transition (by
+        // up to the shift) or when the host clock is stepped. Only a jump back of more than a
+        // minute is examined; the common path is two subtractions and compares.
+        const int64_t wall = timestamp.toEpoch(0);
+        const int64_t previous = lastRedoWall;
+        lastRedoWall = wall;
+        if (unlikely(previous != INT64_MIN && wall + 60 < previous))
+            detectFold(timestamp, previous - wall);
+
+        if (wall >= foldWallStart && wall < foldWallEnd)
+            return timestamp.asSecondOccurrence();
+        return timestamp;
+    }
+
+    Time Ctx::markRedoTime(Time timestamp) {
+        if (hostTimezoneName.empty())
+            return timestamp;
+
+        // A log switch just after the clocks went back is the first time of the repeated period,
+        // read before any LWN of it: it can be what detects the period
+        const int64_t wall = timestamp.toEpoch(0);
+        if (unlikely(lastRedoWall != INT64_MIN && wall + 60 < lastRedoWall))
+            detectFold(timestamp, lastRedoWall - wall);
+        if (wall >= foldWallStart && wall < foldWallEnd)
+            return timestamp.asSecondOccurrence();
+        return timestamp;
+    }
+
+    void Ctx::detectFold(Time timestamp, int64_t jumpBack) {
+        const WallCandidates candidates = wallCandidates(timestamp);
+        if (!candidates.valid || candidates.late == candidates.early)
+            return;
+        // A fold, not a clock step: the jump covers at least half the shift
+        if (jumpBack < (candidates.late - candidates.early) / 2)
+            return;
+        const int64_t wall = timestamp.toEpoch(0);
+        if (wall >= foldWallStart && wall < foldWallEnd)
+            return;
+
+        // The transition instant: the first second in (early, late] with the offset of the second
+        // occurrence. The repeated period is [transition + later offset, transition + earlier
+        // offset) in wall time.
+        struct tm earlyTm{};
+        struct tm lateTm{};
+        const time_t earlyEpoch = candidates.early;
+        const time_t lateEpoch = candidates.late;
+        localtime_r(&earlyEpoch, &earlyTm);
+        localtime_r(&lateEpoch, &lateTm);
+        time_t lo = candidates.early;
+        time_t hi = candidates.late;
+        while (hi - lo > 1) {
+            const time_t mid = lo + ((hi - lo) / 2);
+            struct tm midTm{};
+            localtime_r(&mid, &midTm);
+            if (midTm.tm_gmtoff == lateTm.tm_gmtoff)
+                hi = mid;
+            else
+                lo = mid;
+        }
+
+        foldWallStart = hi + lateTm.tm_gmtoff;
+        foldWallEnd = hi + earlyTm.tm_gmtoff;
+        info(0, "host-timezone " + hostTimezoneName + ": redo clock went back into a repeated period (clocks set back at epoch " +
+             std::to_string(hi) + "), its wall times now resolve to their second occurrence");
+    }
+
     Ctx::~Ctx() {
         lobIdToXidMap.clear();
 

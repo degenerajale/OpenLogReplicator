@@ -102,7 +102,7 @@ namespace OpenLogReplicator {
         }
 
         void appendTimestamp(const std::string_view fieldn, const std::string_view fields, Time timestamp) {
-            time_t tm = timestamp.toEpoch(metadata->ctx->hostTimezone);
+            time_t tm = metadata->ctx->toEpoch(timestamp);
             comma(hasPreviousValue);
             char buffer[22];
             append('"');

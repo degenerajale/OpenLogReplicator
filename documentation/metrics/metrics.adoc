@@ -78,6 +78,7 @@ _IMPORTANT:_ DML operations inside transactions that are skipped are not counted
 | type={online,archived}
 | Number of redo log switches.
 Label `online` for current logs, `archived` for archived logs.
+A switch is counted once the file has been read to its end; an online log overwritten before that is counted when its archived copy has been read.
 
 | log_switches_lag
 | gauge

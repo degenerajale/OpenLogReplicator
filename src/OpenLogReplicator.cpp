@@ -40,6 +40,8 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <fcntl.h>
 #include <regex>
 #include <sys/file.h>
+#include <cstring>
+#include <fstream>
 #include <sys/stat.h>
 #include <thread>
 #include <utility>
@@ -916,8 +918,41 @@ namespace OpenLogReplicator {
 
             if (readerJson.HasMember("host-timezone")) {
                 const std::string hostTimezone = Ctx::getJsonFieldS(configFileName, Ctx::JSON_PARAMETER_LENGTH, readerJson, "host-timezone");
-                if (!Data::parseTimezone(hostTimezone, ctx->hostTimezone))
-                    throw ConfigurationException(30001, "bad JSON, invalid \"host-timezone\" value: " + hostTimezone + ", expected value: {\"+/-HH:MM\"}");
+                if (!hostTimezone.empty() && (hostTimezone[0] == '+' || hostTimezone[0] == '-')) {
+                    // A fixed offset, applied as-is
+                    if (!Data::parseTimezone(hostTimezone, ctx->hostTimezone))
+                        throw ConfigurationException(30001, "bad JSON, invalid \"host-timezone\" value: " + hostTimezone +
+                                                     ", expected value: {\"+/-HH:MM\"} or a zone name present in /usr/share/zoneinfo");
+                } else {
+                    // A zone name: resolved through tzdata so DST applies. This comes before the
+                    // alias table in Data::parseTimezone, which maps names such as EST5EDT or CET to
+                    // fixed offsets (DST lost) and inverts the Etc/GMT+N signs.
+                    // glibc silently falls back to UTC for an unknown name, so the entry must be a
+                    // regular TZif file (stat follows symlinks): a directory such as "America" or a
+                    // metadata file such as "zone.tab" would be accepted by glibc as UTC.
+                    bool zoneOk = !hostTimezone.empty() && hostTimezone[0] != '/' && hostTimezone.find("..") == std::string::npos;
+                    if (zoneOk) {
+                        struct stat zoneStat{};
+                        const std::string zonePath = "/usr/share/zoneinfo/" + hostTimezone;
+                        zoneOk = (stat(zonePath.c_str(), &zoneStat) == 0) && S_ISREG(zoneStat.st_mode);
+                        if (zoneOk) {
+                            std::ifstream zoneFile(zonePath, std::ios::binary);
+                            char magic[4]{};
+                            zoneOk = zoneFile.read(magic, 4) && std::memcmp(magic, "TZif", 4) == 0;
+                        }
+                    }
+                    if (zoneOk) {
+                        setenv("TZ", hostTimezone.c_str(), 1);
+                        tzset();
+                        ctx->hostTimezoneName = hostTimezone;
+                    } else if (Data::parseTimezone(hostTimezone, ctx->hostTimezone)) {
+                        // Known alias but no tzdata on this machine: keep the old fixed-offset meaning
+                        ctx->warning(0, "\"host-timezone\" value " + hostTimezone + " is not in /usr/share/zoneinfo, using the fixed offset " +
+                                     Data::timezoneToString(ctx->hostTimezone) + " without daylight saving time; install tzdata");
+                    } else
+                        throw ConfigurationException(30001, "bad JSON, invalid \"host-timezone\" value: " + hostTimezone +
+                                                     ", expected value: {\"+/-HH:MM\"} or a zone name present in /usr/share/zoneinfo");
+                }
             }
 
             if (readerJson.HasMember("log-timezone")) {

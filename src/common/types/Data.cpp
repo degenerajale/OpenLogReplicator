@@ -51,29 +51,29 @@ namespace OpenLogReplicator {
     const int64_t Data::cumDaysLeap[12]{0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335};
 
     bool Data::parseTimezone(std::string str, int64_t& out) {
-        if (str == "Etc/GMT-14") str = "-14:00";
-        else if (str == "Etc/GMT-13") str = "-13:00";
-        else if (str == "Etc/GMT-12") str = "-12:00";
-        else if (str == "Etc/GMT-11") str = "-11:00";
+        if (str == "Etc/GMT-14") str = "+14:00";
+        else if (str == "Etc/GMT-13") str = "+13:00";
+        else if (str == "Etc/GMT-12") str = "+12:00";
+        else if (str == "Etc/GMT-11") str = "+11:00";
         else if (str == "HST") str = "-10:00";
-        else if (str == "Etc/GMT-10") str = "-10:00";
-        else if (str == "Etc/GMT-9") str = "-09:00";
+        else if (str == "Etc/GMT-10") str = "+10:00";
+        else if (str == "Etc/GMT-9") str = "+09:00";
         else if (str == "PST") str = "-08:00";
         else if (str == "PST8PDT") str = "-08:00";
-        else if (str == "Etc/GMT-8") str = "-08:00";
+        else if (str == "Etc/GMT-8") str = "+08:00";
         else if (str == "MST") str = "-07:00";
         else if (str == "MST7MDT") str = "-07:00";
-        else if (str == "Etc/GMT-7") str = "-07:00";
+        else if (str == "Etc/GMT-7") str = "+07:00";
         else if (str == "CST") str = "-06:00";
         else if (str == "CST6CDT") str = "-06:00";
-        else if (str == "Etc/GMT-6") str = "-06:00";
+        else if (str == "Etc/GMT-6") str = "+06:00";
         else if (str == "EST") str = "-05:00";
         else if (str == "EST5EDT") str = "-05:00";
-        else if (str == "Etc/GMT-5") str = "-05:00";
-        else if (str == "Etc/GMT-4") str = "-04:00";
-        else if (str == "Etc/GMT-3") str = "-03:00";
-        else if (str == "Etc/GMT-2") str = "-02:00";
-        else if (str == "Etc/GMT-1") str = "-01:00";
+        else if (str == "Etc/GMT-5") str = "+05:00";
+        else if (str == "Etc/GMT-4") str = "+04:00";
+        else if (str == "Etc/GMT-3") str = "+03:00";
+        else if (str == "Etc/GMT-2") str = "+02:00";
+        else if (str == "Etc/GMT-1") str = "+01:00";
         else if (str == "GMT") str = "+00:00";
         else if (str == "Etc/GMT") str = "+00:00";
         else if (str == "Greenwich") str = "+00:00";
@@ -93,48 +93,42 @@ namespace OpenLogReplicator {
         else if (str == "WET") str = "+00:00";
         else if (str == "MET") str = "+01:00";
         else if (str == "CET") str = "+01:00";
-        else if (str == "Etc/GMT+1") str = "+01:00";
+        else if (str == "Etc/GMT+1") str = "-01:00";
         else if (str == "EET") str = "+02:00";
-        else if (str == "Etc/GMT+2") str = "+02:00";
-        else if (str == "Etc/GMT+3") str = "+03:00";
-        else if (str == "Etc/GMT+4") str = "+04:00";
-        else if (str == "Etc/GMT+5") str = "+05:00";
-        else if (str == "Etc/GMT+6") str = "+06:00";
-        else if (str == "Etc/GMT+7") str = "+07:00";
+        else if (str == "Etc/GMT+2") str = "-02:00";
+        else if (str == "Etc/GMT+3") str = "-03:00";
+        else if (str == "Etc/GMT+4") str = "-04:00";
+        else if (str == "Etc/GMT+5") str = "-05:00";
+        else if (str == "Etc/GMT+6") str = "-06:00";
+        else if (str == "Etc/GMT+7") str = "-07:00";
         else if (str == "PRC") str = "+08:00";
         else if (str == "ROC") str = "+08:00";
-        else if (str == "Etc/GMT+8") str = "+08:00";
-        else if (str == "Etc/GMT+9") str = "+09:00";
-        else if (str == "Etc/GMT+10") str = "+10:00";
-        else if (str == "Etc/GMT+11") str = "+11:00";
+        else if (str == "Etc/GMT+8") str = "-08:00";
+        else if (str == "Etc/GMT+9") str = "-09:00";
+        else if (str == "Etc/GMT+10") str = "-10:00";
+        else if (str == "Etc/GMT+11") str = "-11:00";
         else
-            if (str == "Etc/GMT+12") str = "+12:00";
+            if (str == "Etc/GMT+12") str = "-12:00";
 
-        if (str.length() == 5) {
-            if (str[1] >= '0' && str[1] <= '9' &&
-                str[2] == ':' &&
-                str[3] >= '0' && str[3] <= '9' &&
-                str[4] >= '0' && str[4] <= '9') {
-                out = -(str[1] - '0') * 3600 + (str[3] - '0') * 60 + (str[4] - '0');
-            } else
-                return false;
-        } else if (str.length() == 6) {
-            if (str[1] >= '0' && str[1] <= '9' &&
-                str[2] >= '0' && str[2] <= '9' &&
-                str[3] == ':' &&
-                str[4] >= '0' && str[4] <= '9' &&
-                str[5] >= '0' && str[5] <= '9') {
-                out = -(str[1] - '0') * 36000 + (str[2] - '0') * 3600 + (str[4] - '0') * 60 + (str[5] - '0');
-            } else
-                return false;
+        // "+H:MM" or "+HH:MM". Minutes are two digits (tens, units); the sign applies to the whole
+        // offset. Oracle accepts -12:00 .. +14:00; anything up to 18:00 with minutes < 60 is kept.
+        int hours;
+        int minutes;
+        const auto digit = [&str](size_t i) { return str[i] >= '0' && str[i] <= '9'; };
+        if (str.length() == 5 && digit(1) && str[2] == ':' && digit(3) && digit(4)) {
+            hours = str[1] - '0';
+            minutes = ((str[3] - '0') * 10) + (str[4] - '0');
+        } else if (str.length() == 6 && digit(1) && digit(2) && str[3] == ':' && digit(4) && digit(5)) {
+            hours = ((str[1] - '0') * 10) + (str[2] - '0');
+            minutes = ((str[4] - '0') * 10) + (str[5] - '0');
         } else
             return false;
-
-        if (str[0] == '-')
-            out = -out;
-        else if (str[0] != '+')
+        if (minutes >= 60 || hours > 18 || (str[0] != '+' && str[0] != '-'))
             return false;
 
+        out = (static_cast<int64_t>(hours) * 3600) + (static_cast<int64_t>(minutes) * 60);
+        if (str[0] == '-')
+            out = -out;
         return true;
     }
 

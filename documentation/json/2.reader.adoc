@@ -52,9 +52,18 @@ _NOTE:_ Disabling checks can improve performance but increases risk.
 Use with caution and prefer enabling checks in production.
 
 |`host-timezone`
-|_string_, format: `+HH:MM` or `-HH:MM`, default: host timezone
-|Timezone of the host running OpenLogReplicator.
-Adjust if the database host uses a different timezone.
+|_string_, format: `+HH:MM`, `-HH:MM` or an IANA zone name such as `America/New_York`, default: timezone of the host running OpenLogReplicator
+|Timezone of the **database host**. Redo log timestamps are written in the database host's local wall-clock time without a zone; this value converts them to UTC for message timestamps (`tm`, `e_tm`, ...) and for the `checkpoint_lag` / `log_switches_lag` metrics.
+
+A fixed offset (`-04:00`) is applied as-is and must be changed by hand at every DST transition.
+A zone name resolves the offset per wall-clock minute, so DST is handled automatically; the offset is cached per minute and costs nothing measurable.
+The zone name must be a regular zone file under `/usr/share/zoneinfo` on the machine running OpenLogReplicator (install `tzdata` in the container image), otherwise the configuration is rejected.
+Legacy names such as `EST5EDT`, `CST6CDT`, `PST8PDT`, `CET` or `EET` are zone names too and follow their daylight saving rules (earlier versions treated them as fixed offsets); `Etc/GMT+5` means UTC−05:00, as in tzdata. Without tzdata installed, these legacy names fall back to their old fixed offset with a warning.
+A zone name is applied by setting the process time zone (`TZ`), so it also becomes the local time of the OpenLogReplicator process: the `file` writer's timestamped file names and the Oracle client session time zone follow it.
+
+Redo timestamps carry no zone, so a wall-clock time in the hour that repeats when clocks are set back (for example 01:00–01:59 on the first Sunday of November in `America/New_York`) could be either of two instants. OpenLogReplicator resolves it from the order of the redo: while the redo clock is in that hour for the first time it uses the first occurrence (EDT), and once the redo clock has gone back into it, the second (EST). `tm`/`e_tm` therefore follow real time through the transition and do not go back; an info message is logged when the second occurrence starts.
+
+_LIMITATION:_ the switch to the second occurrence is detected from the redo clock jumping back by at least half the shift, so it needs redo written late in the first pass (for `America/New_York`, between 01:30 and 01:59 EDT) and early in the second, which any active database produces. If OpenLogReplicator is started while the hour is repeating, or the database was idle across the change, times of the repeated hour resolve to the first occurrence (one hour early) until 02:00. Column values are never converted through this setting.
 
 |`log-archive-format`
 |_string_, max length: 4000

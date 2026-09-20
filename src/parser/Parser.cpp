@@ -1355,10 +1355,10 @@ namespace OpenLogReplicator {
                         const uint32_t lwnSize = ctx->read32(redoBlock + blockOffset + 28U);
                         lwnEndBlock = currentBlock + lwnSize;
                         lwnScn = ctx->readScn(redoBlock + blockOffset + 40U);
-                        lwnTimestamp = ctx->read32(redoBlock + blockOffset + 64U);
+                        lwnTimestamp = ctx->noteRedoTime(Time(ctx->read32(redoBlock + blockOffset + 64U)));
 
                         if (ctx->metrics != nullptr) {
-                            const int64_t diff = ctx->clock->getTimeT() - lwnTimestamp.toEpoch(ctx->hostTimezone);
+                            const int64_t diff = ctx->clock->getTimeT() - ctx->toEpoch(lwnTimestamp);
                             ctx->metrics->emitCheckpointLag(diff);
                         }
 
@@ -1591,15 +1591,22 @@ namespace OpenLogReplicator {
             }
         }
 
-        if (ctx->metrics != nullptr && reader->getNextScn() != Scn::none()) {
-            const int64_t diff = ctx->clock->getTimeT() - reader->getNextTime().toEpoch(ctx->hostTimezone);
+        // Only once the whole log has been read: after OVERWRITTEN its remaining records, all before
+        // the switch, are read again from the archived copy, which then counts the switch
+        if (reader->getNextScn() != Scn::none() && reader->getRet() == Reader::REDO_CODE::FINISHED) {
+            // Not only for the metrics: a log switch right after the clocks went back can be the
+            // first sign of the repeated period, which the following LWN times depend on
+            const Time switchTime = ctx->markRedoTime(reader->getNextTime());
+            if (ctx->metrics != nullptr) {
+                const int64_t diff = ctx->clock->getTimeT() - ctx->toEpoch(switchTime);
 
-            if (group == 0) {
-                ctx->metrics->emitLogSwitchesArchived(1);
-                ctx->metrics->emitLogSwitchesLagArchived(diff);
-            } else {
-                ctx->metrics->emitLogSwitchesOnline(1);
-                ctx->metrics->emitLogSwitchesLagOnline(diff);
+                if (group == 0) {
+                    ctx->metrics->emitLogSwitchesArchived(1);
+                    ctx->metrics->emitLogSwitchesLagArchived(diff);
+                } else {
+                    ctx->metrics->emitLogSwitchesOnline(1);
+                    ctx->metrics->emitLogSwitchesLagOnline(diff);
+                }
             }
         }
 
