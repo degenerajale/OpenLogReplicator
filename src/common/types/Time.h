@@ -23,6 +23,8 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <iomanip>
 #include <ostream>
 
+#include <ctime>
+
 namespace OpenLogReplicator {
     class Time final {
         uint32_t data;
@@ -43,6 +45,23 @@ namespace OpenLogReplicator {
         Time& operator=(uint32_t newData) {
             data = newData;
             return *this;
+        }
+
+        // Fill a broken-down time with the redo wall-clock value (no zone applied).
+        void toTm(struct tm& out) const {
+            uint64_t rest = data;
+            out.tm_sec = static_cast<int>(rest % 60);
+            rest /= 60;
+            out.tm_min = static_cast<int>(rest % 60);
+            rest /= 60;
+            out.tm_hour = static_cast<int>(rest % 24);
+            rest /= 24;
+            out.tm_mday = static_cast<int>((rest % 31) + 1);
+            rest /= 31;
+            out.tm_mon = static_cast<int>(rest % 12);
+            rest /= 12;
+            out.tm_year = static_cast<int>(rest + 1988 - 1900);
+            out.tm_isdst = -1;
         }
 
         [[nodiscard]] time_t toEpoch(int64_t hostTimezone) const {

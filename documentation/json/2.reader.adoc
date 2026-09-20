@@ -52,9 +52,14 @@ _NOTE:_ Disabling checks can improve performance but increases risk.
 Use with caution and prefer enabling checks in production.
 
 |`host-timezone`
-|_string_, format: `+HH:MM` or `-HH:MM`, default: host timezone
-|Timezone of the host running OpenLogReplicator.
-Adjust if the database host uses a different timezone.
+|_string_, format: `+HH:MM`, `-HH:MM` or an IANA zone name such as `America/New_York`, default: timezone of the host running OpenLogReplicator
+|Timezone of the **database host**. Redo log timestamps are written in the database host's local wall-clock time without a zone; this value converts them to UTC for message timestamps (`tm`, `e_tm`, ...) and for the `checkpoint_lag` / `log_switches_lag` metrics.
+
+A fixed offset (`-04:00`) is applied as-is and must be changed by hand at every DST transition.
+A zone name resolves the offset per wall-clock minute, so DST is handled automatically; the offset is cached per minute and costs nothing measurable.
+The zone name must be a regular zone file under `/usr/share/zoneinfo` on the machine running OpenLogReplicator (install `tzdata` in the container image), otherwise the configuration is rejected.
+
+_LIMITATION:_ redo timestamps carry no zone, so during the hour that repeats at a fall-back transition (for example 01:00–01:59 on the first Sunday of November in `America/New_York`) a wall-clock time is ambiguous and is resolved to one of its two instants; timestamps from the other instant are off by the DST difference for that hour, once a year. This affects `tm`/`e_tm` and the lag metrics for that hour only; column values are not converted through this setting.
 
 |`log-archive-format`
 |_string_, max length: 4000

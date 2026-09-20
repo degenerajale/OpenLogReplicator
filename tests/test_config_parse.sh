@@ -171,6 +171,14 @@ run_test no-topics "$WORKDIR/no-topics.json" any 'adding target: KAFKA'
 sed 's/"alias": "SOURCE",/"alias": "SOURCE",\n    "flags": 2,/' "$WORKDIR/topics-good.json" >"$WORKDIR/topics-schemaless.json"
 run_test topics-schemaless "$WORKDIR/topics-schemaless.json" any 'Kafka topic mapping: HR.EMPLOYEES -> hr_employees'
 
+# host-timezone: a zone name must be a regular TZif file - a directory and a metadata file are rejected
+sed 's/"server": "\/\/localhost:1521\/NOSERVICE"/"server": "\/\/localhost:1521\/NOSERVICE", "host-timezone": "America"/' "$WORKDIR/topics-good.json" >"$WORKDIR/tz-dir.json"
+run_test tz-dir "$WORKDIR/tz-dir.json" nonzero 'invalid "host-timezone" value: America'
+sed 's/"server": "\/\/localhost:1521\/NOSERVICE"/"server": "\/\/localhost:1521\/NOSERVICE", "host-timezone": "zone.tab"/' "$WORKDIR/topics-good.json" >"$WORKDIR/tz-tab.json"
+run_test tz-tab "$WORKDIR/tz-tab.json" nonzero 'invalid "host-timezone" value: zone.tab'
+sed 's/"server": "\/\/localhost:1521\/NOSERVICE"/"server": "\/\/localhost:1521\/NOSERVICE", "host-timezone": "America\/New_York"/' "$WORKDIR/topics-good.json" >"$WORKDIR/tz-ok.json"
+run_test tz-ok "$WORKDIR/tz-ok.json" any 'Kafka topic mapping: HR.EMPLOYEES -> hr_employees'
+
 if [ $FAILED -ne 0 ]; then
     echo "config-parse test FAILED"
     exit 1

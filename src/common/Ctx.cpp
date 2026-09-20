@@ -59,6 +59,33 @@ namespace OpenLogReplicator {
         hostTimezone = -timezone;
     }
 
+    time_t Ctx::toEpoch(Time timestamp) const {
+        if (hostTimezoneName.empty())
+            return timestamp.toEpoch(hostTimezone);
+
+        // Time packs sec/min/hour/day/month/year, so dividing by 60 yields a unique key per
+        // wall-clock minute. Zone transitions are not always on the hour (Asia/Colombo 1996-10-26
+        // moved at 00:30, Lord Howe shifts by 30 minutes), but every transition in tzdata since the
+        // local-mean-time era is on a minute boundary, so a per-minute offset is exact for redo
+        // timestamps; it costs one mktime per minute of redo time.
+        const uint64_t minute = timestamp.getVal() / 60;
+        const uint64_t cached = hostTimezoneCache.load(std::memory_order_relaxed);
+        if ((cached >> 32) == minute)
+            return timestamp.toEpoch(static_cast<int32_t>(cached & 0xFFFFFFFF));
+
+        // Resolve through mktime under the process TZ (set to hostTimezoneName at startup).
+        // A wall time inside the hour repeated at a fall-back transition is ambiguous; with
+        // tm_isdst = -1 mktime picks one instant, and the other occurrence converts one DST
+        // step off. Redo carries no zone, so this cannot be resolved here; documented under
+        // host-timezone.
+        struct tm tm{};
+        timestamp.toTm(tm);
+        const time_t epoch = mktime(&tm);
+        const int64_t offset = timestamp.toEpoch(0) - epoch;
+        hostTimezoneCache.store((minute << 32) | static_cast<uint32_t>(static_cast<int32_t>(offset)), std::memory_order_relaxed);
+        return epoch;
+    }
+
     Ctx::~Ctx() {
         lobIdToXidMap.clear();
 

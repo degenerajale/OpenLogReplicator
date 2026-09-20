@@ -1358,7 +1358,7 @@ namespace OpenLogReplicator {
                         lwnTimestamp = ctx->read32(redoBlock + blockOffset + 64U);
 
                         if (ctx->metrics != nullptr) {
-                            const int64_t diff = ctx->clock->getTimeT() - lwnTimestamp.toEpoch(ctx->hostTimezone);
+                            const int64_t diff = ctx->clock->getTimeT() - ctx->toEpoch(lwnTimestamp);
                             ctx->metrics->emitCheckpointLag(diff);
                         }
 
@@ -1592,7 +1592,7 @@ namespace OpenLogReplicator {
         }
 
         if (ctx->metrics != nullptr && reader->getNextScn() != Scn::none()) {
-            const int64_t diff = ctx->clock->getTimeT() - reader->getNextTime().toEpoch(ctx->hostTimezone);
+            const int64_t diff = ctx->clock->getTimeT() - ctx->toEpoch(reader->getNextTime());
 
             if (group == 0) {
                 ctx->metrics->emitLogSwitchesArchived(1);
