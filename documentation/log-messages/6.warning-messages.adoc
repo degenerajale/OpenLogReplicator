@@ -64,8 +64,11 @@ Remediation: Check directory permissions and available disk space.
 
 ==== code 60013: "forced to continue working in spite of error"
 
-A recoverable error occurred and processing continued.
-Remediation: Investigate the underlying error; check logs for details.
+A recoverable error occurred and processing continued (`flags` bit `0x10`, ignore data errors).
+The record that failed is dropped.
+
+The same error for the same object is logged in full only for its first three occurrences per redo log; afterwards it is counted, with a warning every 10000 occurrences and an info line `ignored data errors in ...: <code> obj:<object> x<count>` at the end of each redo log.
+Remediation: Investigate the underlying error; check logs for details. A count against an object you replicate means lost changes.
 
 ==== code 60014: "verify redo log file for OP:10.8, len: <number>, data = [<number>, <number>, <number>, <number>]"
 

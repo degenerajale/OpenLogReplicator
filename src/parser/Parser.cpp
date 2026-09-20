@@ -101,6 +101,26 @@ namespace OpenLogReplicator {
         }
     }
 
+    // With IGNORE_DATA_ERRORS the same record shape (e.g. compressed-partition row pieces of one
+    // object) can fail tens of thousands of times per log. Log the first occurrences per
+    // (code, object) in full, then one line per 10000, and a summary at the end of the log.
+    void Parser::reportIgnoredError(int code, const std::string& msg) {
+        std::string key = std::to_string(code);
+        const size_t objPos = msg.find(" obj: ");
+        if (objPos != std::string::npos) {
+            const size_t end = msg.find(' ', objPos + 6);
+            key += " obj:" + msg.substr(objPos + 6, (end == std::string::npos) ? std::string::npos : end - objPos - 6);
+        }
+        const uint64_t count = ++ignoredErrors[key];
+        if (count <= 3) {
+            ctx->error(code, msg);
+            ctx->warning(60013, "forced to continue working in spite of error");
+            if (count == 3)
+                ctx->warning(60013, "further occurrences of error " + key + " are counted; a summary is logged at the end of each redo log");
+        } else if ((count % 10000) == 0)
+            ctx->warning(60013, "error " + key + " ignored " + std::to_string(count) + " times in this redo log so far");
+    }
+
     void Parser::freeLwn() {
         while (lwnAllocated > 1) {
             ctx->freeMemoryChunk(ctx->parserThread, Ctx::MEMORY::PARSER, lwnChunks[--lwnAllocated]);
@@ -1391,6 +1411,7 @@ namespace OpenLogReplicator {
                 !ctx->isTraceSet(Ctx::TRACE::DUMP);
         skippedPairs = 0;
         skippedIndexPairs = 0;
+        ignoredErrors.clear();
         keptUserTable = 0;
         keptDictTable = 0;
         keptLobIndex = 0;
@@ -1597,14 +1618,12 @@ namespace OpenLogReplicator {
                             analyzeLwn(lwnMembers[1]);
                         } catch (DataException& ex) {
                             if (ctx->isFlagSet(Ctx::REDO_FLAGS::IGNORE_DATA_ERRORS)) {
-                                ctx->error(ex.code, ex.msg);
-                                ctx->warning(60013, "forced to continue working in spite of error");
+                                reportIgnoredError(ex.code, ex.msg);
                             } else
                                 throw DataException(ex.code, "runtime error, aborting further redo log processing: " + ex.msg);
                         } catch (RedoLogException& ex) {
                             if (ctx->isFlagSet(Ctx::REDO_FLAGS::IGNORE_DATA_ERRORS)) {
-                                ctx->error(ex.code, ex.msg);
-                                ctx->warning(60013, "forced to continue working in spite of error");
+                                reportIgnoredError(ex.code, ex.msg);
                             } else
                                 throw RedoLogException(ex.code, "runtime error, aborting further redo log processing: " + ex.msg);
                         }
@@ -1770,6 +1789,13 @@ namespace OpenLogReplicator {
                               std::to_string(keptUserTable) + ", dictionary table " + std::to_string(keptDictTable) +
                               ", lob index " + std::to_string(keptLobIndex) + ", lob undo " + std::to_string(keptLobUndo) +
                               ", no partner " + std::to_string(keptNoPartner) + ", other opc " + std::to_string(keptOtherOpc));
+        }
+
+        if (!ignoredErrors.empty()) {
+            std::string summary = "ignored data errors in " + toString() + ":";
+            for (const auto& [key, count]: ignoredErrors)
+                summary += " " + key + " x" + std::to_string(count);
+            ctx->info(0, summary);
         }
 
         if (ctx->dumpRedoLog >= 1 && ctx->dumpStream->is_open()) {

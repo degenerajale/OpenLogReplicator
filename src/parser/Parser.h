@@ -81,6 +81,10 @@ namespace OpenLogReplicator {
         uint64_t keptLobUndo{0};      // opc 0x1A01, never decided from the head
         uint64_t keptNoPartner{0};    // eligible undo without a matching redo vector next to it
         uint64_t keptOtherOpc{0};     // other undo kinds
+        // Ignored data errors (IGNORE_DATA_ERRORS), counted per error code and object so the
+        // same broken record shape does not flood the log; see reportIgnoredError()
+        std::unordered_map<std::string, uint64_t> ignoredErrors;
+        void reportIgnoredError(int code, const std::string& msg);
 
         uint8_t* lwnChunks[MAX_LWN_CHUNKS]{};
         LwnMember* lwnMembers[MAX_RECORDS_IN_LWN + 1]{};
