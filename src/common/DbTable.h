@@ -118,6 +118,12 @@ namespace OpenLogReplicator {
             return (static_cast<uint>(options) & static_cast<uint>(OPTIONS::SYSTEM_TABLE)) != 0;
         }
 
+        // Everything about the table that affects the messages OLR produces: columns (name,
+        // type, size, charset, flags), key, tags, LOB columns, data object ids. Used to tell a
+        // real definition change from a dictionary row update that changes nothing visible
+        // (statistics, partition maintenance), so the latter is not reported as "updated".
+        [[nodiscard]] std::string definitionSignature() const;
+
         friend std::ostream& operator<<(std::ostream& os, const DbTable& table);
     };
 }

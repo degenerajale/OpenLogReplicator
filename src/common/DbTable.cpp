@@ -18,6 +18,7 @@ License along with this program; see the file LICENSE;
 If not, see <http://www.gnu.org/licenses/>. */
 
 #include <algorithm>
+#include <sstream>
 #include <utility>
 
 #include "Ctx.h"
@@ -159,6 +160,29 @@ namespace OpenLogReplicator {
 
         Expression::buildTokens(newCondition, tokens);
         conditionValue = Expression::buildCondition(newCondition, tokens, stack);
+    }
+
+    std::string DbTable::definitionSignature() const {
+        std::ostringstream ss;
+        ss << obj << '|' << dataObj << '|' << static_cast<uint>(options) << '|' << owner << '.' << name << '|';
+        for (const DbColumn* column: columns)
+            ss << column->col << ':' << column->segCol << ':' << column->guardSeg << ':' << column->name << ':' <<
+                    static_cast<uint>(column->type) << ':' << column->length << ':' << column->precision << ':' << column->scale << ':' <<
+                    column->charsetId << ':' << column->numPk << ':' << column->nullable << column->hidden << column->storedAsLob <<
+                    column->systemGenerated << column->nested << column->unused << column->added << column->guard << column->xmlType << ',';
+        ss << '|';
+        for (const typeCol col: pk)
+            ss << col << ',';
+        ss << '|';
+        for (const typeCol col: tagCols)
+            ss << col << ',';
+        ss << '|';
+        for (const DbLob* lob: lobs)
+            ss << lob->lObj << ':' << lob->intCol << ':' << lob->col << ',';
+        ss << '|';
+        for (const typeObj2 partition: tablePartitions)
+            ss << partition << ',';
+        return ss.str();
     }
 
     std::ostream& operator<<(std::ostream& os, const DbTable& table) {

@@ -90,6 +90,11 @@ namespace OpenLogReplicator {
         std::set<DbTable*> tablesTouched;
         std::set<typeObj> identifiersTouched;
         bool touched{false};
+        // definitionSignature() of tables dropped for rebuild in the current system transaction,
+        // by obj; a rebuilt table with an identical signature is a dictionary-only update
+        std::unordered_map<typeObj, std::string> touchedSignatures;
+        // filled by buildMaps: tables rebuilt in this system transaction whose definition did not change
+        std::unordered_map<typeObj, std::string> tablesUnchanged;
 
         TablePack<SysCCol, SysCColKey> sysCColPack;
         TablePack<SysCDef, SysCDefKey, SysCDefCon> sysCDefPack;

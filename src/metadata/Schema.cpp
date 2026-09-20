@@ -317,6 +317,7 @@ namespace OpenLogReplicator {
         for (const DbTable* table: tablesTouched) {
             msgs[table->obj] = table->owner + "." + table->name + " (dataobj: " + std::to_string(table->dataObj) + ", obj: " +
                     std::to_string(table->obj) + ") ";
+            touchedSignatures[table->obj] = table->definitionSignature();
             removeTableFromDict(table);
             delete table;
         }
@@ -473,6 +474,8 @@ namespace OpenLogReplicator {
     void Schema::resetTouched() {
         tablesTouched.clear();
         identifiersTouched.clear();
+        touchedSignatures.clear();
+        tablesUnchanged.clear();
         sysCColPack.setTouched.clear();
         sysCDefPack.setTouched.clear();
         sysColPack.setTouched.clear();
@@ -980,9 +983,16 @@ namespace OpenLogReplicator {
                            std::dec << sysObj->obj << " (" << key << ") ALWAYS;";
                 }
             }
-            tablesUpdated[sysObj->obj] = ss.str();
-
             tableTmp->setCondition(condition);
+
+            // Rebuilt with the same definition (statistics, partition maintenance, other
+            // dictionary rows that change nothing OLR emits): not an update worth reporting
+            const auto& signatureIt = touchedSignatures.find(sysObj->obj);
+            if (signatureIt != touchedSignatures.end() && signatureIt->second == tableTmp->definitionSignature())
+                tablesUnchanged[sysObj->obj] = ss.str();
+            else
+                tablesUpdated[sysObj->obj] = ss.str();
+
             addTableToDict(tableTmp);
             tableTmp = nullptr;
         }
