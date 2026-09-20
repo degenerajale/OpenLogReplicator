@@ -79,6 +79,10 @@ namespace OpenLogReplicator {
         static std::string timezoneToString(int64_t tz);
         static time_t valuesToEpoch(int year, int month, int day, int hour, int minute, int second, int tz);
         static uint64_t epochToIso8601(time_t timestamp, char* buffer, bool addT, bool addZ);
+        // Epoch nanoseconds (seconds * 1e9 + fraction, 0 <= fraction < 1e9) as decimal digits into
+        // buffer (at least 32 bytes), returns the length. Exact for any seconds value: magnitudes
+        // beyond int64 (before 1677 / after 2262) and negative seconds with a fraction.
+        static uint64_t epochNanoToString(int64_t seconds, uint64_t fraction, char* buffer);
         static std::ostringstream& writeEscapeValue(std::ostringstream& ss, const std::string& str);
         static void checkName(const std::string& name);
     };

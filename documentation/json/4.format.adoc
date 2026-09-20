@@ -205,7 +205,7 @@ _NOTE:_ `timestamp` format is also used for TIMESTAMP WITH LOCAL TIME ZONE value
 For values and options, see xref:#timestamp[timestamp] above.
 
 |`timestamp-tz` [[timestamp-tz]]
-|_integer_, min: 0, max: 11, default: 0
+|_integer_, min: 0, max: 15, default: 0
 |Format for TIMESTAMP WITH TIME ZONE values.
 Options control epoch vs ISO-8601 and how the timezone is attached (comma, space, or embedded Z).
 
@@ -221,6 +221,12 @@ Options control epoch vs ISO-8601 and how the timezone is attached (comma, space
 * `9` — _ISO-8601_ format stored with microsecond precision as a string  without "TZ" with time zone after space sign — `"tms": "2022-05-01 06:00:00.123456 Europe/Warsaw"`.
 * `10` — _ISO-8601_ format stored with millisecond precision as a string without "TZ" with time zone after space sign — `"tms": "2022-05-01 06:00:00.123 Europe/Warsaw"`.
 * `11` — _ISO-8601_ format stored second precision as a string without "TZ" with time zone after space sign — `"tms": "2022-05-01 06:00:00 Europe/Warsaw"`.
+* `12` — Unix epoch with nanosecond precision as a number, time zone dropped — `"tm": 1651384800123456789`. Same encoding and range (1677–2262) as `timestamp-format` `0`.
+* `13` — Unix epoch with microsecond precision as a number, time zone dropped (possible data precision loss) — `"tm": 1651384800123457`.
+* `14` — Unix epoch with millisecond precision as a number, time zone dropped (possible data precision loss) — `"tm": 1651384800123`.
+* `15` — Unix epoch with second precision as a number, time zone dropped (possible data precision loss) — `"tm": 1651384800`.
+
+Values `12`–`15` emit the instant only; the stored time zone is a presentation attribute of the value and does not change the instant.
 
 |`timestamp-type` [[timestamp-type]]
 |_integer_, min: 0, max: 15, default: 0

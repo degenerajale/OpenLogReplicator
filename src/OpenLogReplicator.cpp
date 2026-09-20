@@ -790,8 +790,8 @@ namespace OpenLogReplicator {
 
             if (formatJson.HasMember("timestamp-tz")) {
                 const uint val = Ctx::getJsonFieldU(configFileName, formatJson, "timestamp-tz");
-                if (val > 11)
-                    throw ConfigurationException(30001, "bad JSON, invalid \"timestamp-tz\" value: " + std::to_string(val) + ", expected: one of {0 .. 11}");
+                if (val > 15)
+                    throw ConfigurationException(30001, "bad JSON, invalid \"timestamp-tz\" value: " + std::to_string(val) + ", expected: one of {0 .. 15}");
                 timestampTzFormat = static_cast<Format::TIMESTAMP_TZ_FORMAT>(val);
             }
 

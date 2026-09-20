@@ -189,6 +189,11 @@ fi
 # a malformed fixed offset is rejected, not looked up as a zone name
 sed 's/"server": "\/\/localhost:1521\/NOSERVICE"/"server": "\/\/localhost:1521\/NOSERVICE", "host-timezone": "+5"/' "$WORKDIR/topics-good.json" >"$WORKDIR/tz-badoffset.json"
 run_test tz-badoffset "$WORKDIR/tz-badoffset.json" nonzero 'invalid "host-timezone" value: +5'
+# timestamp-tz: numeric epoch options 12..15 accepted, 16 rejected
+sed 's/"format": {"type": "json"}/"format": {"type": "json", "timestamp-tz": 13}/' "$WORKDIR/topics-good.json" >"$WORKDIR/tstz-13.json"
+run_test tstz-13 "$WORKDIR/tstz-13.json" any 'Kafka topic mapping: HR.EMPLOYEES -> hr_employees'
+sed 's/"format": {"type": "json"}/"format": {"type": "json", "timestamp-tz": 16}/' "$WORKDIR/topics-good.json" >"$WORKDIR/tstz-16.json"
+run_test tstz-16 "$WORKDIR/tstz-16.json" nonzero 'invalid "timestamp-tz" value: 16, expected: one of {0 .. 15}'
 
 if [ $FAILED -ne 0 ]; then
     echo "config-parse test FAILED"
