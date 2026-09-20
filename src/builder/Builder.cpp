@@ -710,6 +710,28 @@ namespace OpenLogReplicator {
         }
     }
 
+    // Commit of a transaction whose begin record was never read: it was already open when
+    // replication started, so its content is unknown and cannot be emitted. Only the commit
+    // position and the xid go out; the begin fields are set to the commit position so the
+    // message sorts and checkpoints like a transaction that began and committed in one LWN.
+    void Builder::processPartial(Xid xid, uint16_t newThread, Seq newCommitSequence, Scn newCommitScn, Time newCommitTimestamp) {
+        lastXid = xid;
+        thread = newThread;
+        beginSequence = newCommitSequence;
+        beginScn = newCommitScn;
+        beginTimestamp = newCommitTimestamp;
+        commitSequence = newCommitSequence;
+        commitScn = newCommitScn;
+        commitTimestamp = newCommitTimestamp;
+        if (lwnScn != commitScn) {
+            lwnScn = commitScn;
+            lwnIdx = 0;
+        }
+        newTran = false;
+
+        processPartialMessage();
+    }
+
     // 0x05010B0B
     void Builder::processInsertMultiple(Seq sequence, Scn scn, Time timestamp, LobCtx* lobCtx, const XmlCtx* xmlCtx, const RedoLogRecord* redoLogRecord1,
                                         const RedoLogRecord* redoLogRecord2, bool system, bool schema, bool dump) {

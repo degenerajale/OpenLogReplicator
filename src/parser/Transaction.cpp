@@ -196,6 +196,20 @@ namespace OpenLogReplicator {
                                " empty buffer, offset: " + redoLogRecord1->fileOffset.toString() + ", xid: " + xid.toString() + ", pos: 1");
     }
 
+    // Committed without a begin record (already open when replication started). The
+    // buffered chunks are the part seen after the start only, so nothing of the content is
+    // emitted; the consumer gets one marker with the commit position and the xid.
+    void Transaction::flushPartial(Metadata* metadata, Builder* builder) {
+        metadata->ctx->parserThread->contextSet(Thread::CONTEXT::TRAN, Thread::REASON::TRAN);
+        std::unique_lock const lckTransaction(metadata->mtxTransaction);
+
+        if (unlikely(metadata->ctx->isTraceSet(Ctx::TRACE::TRANSACTION)))
+            metadata->ctx->logTrace(Ctx::TRACE::TRANSACTION, "partial " + toString(metadata->ctx));
+
+        builder->processPartial(xid, thread, commitSequence, commitScn, commitTimestamp);
+        metadata->ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
+    }
+
     void Transaction::flush(Metadata* metadata, Builder* builder) {
         metadata->ctx->swappedMemoryFlush(metadata->ctx->parserThread, xid);
         bool opFlush;

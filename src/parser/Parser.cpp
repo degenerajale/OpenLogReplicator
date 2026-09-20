@@ -992,6 +992,13 @@ namespace OpenLogReplicator {
                         ctx->metrics->emitTransactionsCommitPartial(1);
                 }
                 ctx->warning(60011, "skipping transaction with no beginning: " + transaction->toString(ctx));
+                // Only reachable with SHOW_INCOMPLETE_TRANSACTIONS (findTransaction above adds
+                // the object only then). Rolled-back and system transactions emit nothing, as
+                // their complete counterparts do.
+                if (!transaction->rollback && !transaction->system) {
+                    transaction->flushPartial(metadata, builder);
+                    ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
+                }
             }
         } else {
             if (ctx->metrics != nullptr) {

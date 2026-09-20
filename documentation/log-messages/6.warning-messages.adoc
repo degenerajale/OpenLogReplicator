@@ -54,8 +54,8 @@ Remediation: Usually benign if rollback started before replication; confirm rete
 
 ==== code 60011: "skipping transaction with no beginning: <details>"
 
-Transaction began prior to current processing window and lacks a recorded start.
-Remediation: Ensure redo retention covers the transaction or adjust start SCN.
+Transaction began prior to current processing window and lacks a recorded start. Its content is not emitted; with JSON output a `"p"` marker message with the commit position and xid is sent instead.
+Remediation: Expected for transactions open at start-scn. Ensure redo retention covers the transaction or adjust start SCN, or let the consumer recover the rows via `FLASHBACK_TRANSACTION_QUERY` using the xid.
 
 ==== code 60012: "aborting log dump"
 

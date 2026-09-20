@@ -93,7 +93,7 @@ _TIP:_ Disabling direct IO reduces guarantees; use only when necessary.
 * `0x0080` — Show guard columns.
 * `0x0100` — Show nested columns.
 * `0x0200` — Show unused columns.
-* `0x0400` — Include incomplete transactions in output.
+* `0x0400` — Track transactions whose begin was not read (already open at start): log warning 60011 at their commit and, for JSON output, emit a `"p"` (partial commit) marker with the commit position and xid. Their content is never emitted.
 * `0x0800` — Include system transactions.
 * `0x1000` — Include checkpoint records in output.
 * `0x2000` — Do not delete old checkpoint files.

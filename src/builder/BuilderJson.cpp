@@ -484,6 +484,26 @@ namespace OpenLogReplicator {
         num = 0;
     }
 
+    // Standalone message, never part of a full-format transaction: {"op":"p"} with the
+    // commit scn/timestamp and xid in the header. No attributes: they come from the begin
+    // record, which was never read. The transaction may have touched any table, so one copy
+    // goes to every Kafka topic in the map (the default topic alone for other writers): each
+    // per-table consumer then sees the marker in order within its own stream.
+    void BuilderJson::processPartialMessage() {
+        const size_t topics = metadata->topicMap.names().size();
+        const uint16_t last = topics > 0 ? static_cast<uint16_t>(topics - 1) : TopicMap::DEFAULT_ID;
+        for (uint16_t topicId = TopicMap::DEFAULT_ID; topicId <= last; ++topicId) {
+            builderBegin(commitSequence, commitScn, 0, BuilderMsg::OUTPUT_BUFFER::NONE, topicId);
+            append('{');
+            hasPreviousValue = false;
+            appendHeader(commitScn, commitTimestamp, true, format.isDbFormatAddDml(), true, false);
+
+            comma(hasPreviousValue);
+            append(std::string_view(R"("payload":[{"op":"p"}]})"));
+            builderCommit();
+        }
+    }
+
     void BuilderJson::processInsert(Seq sequence, Scn scn, Time timestamp, LobCtx* lobCtx, const XmlCtx* xmlCtx, const DbTable* table,
                                     typeObj obj, typeDataObj dataObj, typeDba bdba, typeSlot slot, FileOffset fileOffset) {
         if (newTran)

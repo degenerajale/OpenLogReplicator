@@ -309,6 +309,11 @@ namespace OpenLogReplicator {
         num = 0;
     }
 
+    // The generated pb::Op enum has no value for a partial commit; the protobuf output
+    // keeps the previous behaviour (nothing emitted, warning 60011 only).
+    void BuilderProtobuf::processPartialMessage() {
+    }
+
     void BuilderProtobuf::processCheckpoint(Seq sequence, Scn scn, Time timestamp __attribute__((unused)), FileOffset fileOffset,
             bool redo) {
         if (lwnScn != scn) {

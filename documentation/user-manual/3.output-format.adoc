@@ -83,7 +83,8 @@ The following operation types are supported:
 - `"u"` -- update record -- field would represent UPDATE DML operation;
 - `"d"` -- delete record -- field would represent DELETE DML operation;
 - `"ddl"` -- DDL operation;
-- `"chkpt"` -- checkpoint record.
+- `"chkpt"` -- checkpoint record;
+- `"p"` -- partial commit marker (JSON only, requires source flag `0x0400`): a transaction committed whose begin record was never read because it was already open when replication started. Its content is unknown and is not emitted; the message carries only the header (commit SCN, timestamp, `xid`). With the Kafka writer one copy is sent to every topic in `topics` and to the default topic, so each per-table consumer sees it in order in its own stream. A consumer that bootstraps from an `AS OF SCN` snapshot can use the `xid` to fetch the transaction's row changes from `FLASHBACK_TRANSACTION_QUERY`. Rolled-back and system transactions produce no marker.
 
 ==== Response: _payload.schema_
 

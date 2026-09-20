@@ -939,6 +939,7 @@ namespace OpenLogReplicator {
         BuilderJson(Ctx* newCtx, Locales* newLocales, Metadata* newMetadata, Format& newFormat, uint64_t newFlushBuffer);
 
         void processCommit() override;
+        void processPartialMessage() override;
         void processCheckpoint(Seq sequence, Scn scn, Time timestamp, FileOffset fileOffset, bool redo) override;
     };
 }

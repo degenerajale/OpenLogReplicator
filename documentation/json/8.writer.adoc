@@ -37,7 +37,7 @@ Keys are matched against the data dictionary names exactly, so a quoted identifi
 
 * Keys are matched literally - no regex patterns, no placeholders, no auto-derivation of topic names.
 * Several tables may share one topic (fan-in).
-* Tables not listed here, and all control frames, go to the `topic` default topic.
+* Tables not listed here, and all control frames, go to the `topic` default topic. The exception is the `"p"` partial-commit marker (source flag `0x0400`), which is copied to every mapped topic and the default topic.
 * Not valid together with the `full` message format, since one message can contain rows of several tables.
 * Not valid for writer types other than `kafka`.
 

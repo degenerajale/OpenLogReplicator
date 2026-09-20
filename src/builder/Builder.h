@@ -1280,8 +1280,10 @@ namespace OpenLogReplicator {
         void processDml(Seq sequence, Scn scn, Time timestamp, LobCtx* lobCtx, const XmlCtx* xmlCtx, const std::deque<const RedoLogRecord*>& redo1,
                         const std::deque<const RedoLogRecord*>& redo2, Format::TRANSACTION_TYPE transactionType, bool system, bool schema, bool dump);
         void processDdl(Seq sequence, Scn scn, Time timestamp, const RedoLogRecord* redoLogRecord1);
+        void processPartial(Xid xid, uint16_t newThread, Seq newCommitSequence, Scn newCommitScn, Time newCommitTimestamp);
         virtual void initialize();
         virtual void processCommit() = 0;
+        virtual void processPartialMessage() = 0;
         virtual void processCheckpoint(Seq sequence, Scn scn, Time timestamp, FileOffset fileOffset, bool redo) = 0;
         void releaseBuffers(Thread* t, uint64_t maxId);
         void releaseDdl();
