@@ -484,7 +484,7 @@ namespace OpenLogReplicator {
         }
 
     public:
-        static void process0501(Ctx* ctx, RedoLogRecord* redoLogRecord) {
+        static bool process0501Head(Ctx* ctx, RedoLogRecord* redoLogRecord) {
             init(ctx, redoLogRecord);
             process(ctx, redoLogRecord);
             typePos fieldPos = 0;
@@ -496,13 +496,39 @@ namespace OpenLogReplicator {
             ktudb(ctx, redoLogRecord, fieldPos, fieldSize);
 
             if (!RedoLogRecord::nextFieldOpt(ctx, redoLogRecord, fieldNum, fieldPos, fieldSize, 0x050113))
-                return;
+                return false;
             // Field: 2
             ktub(ctx, redoLogRecord, fieldPos, fieldSize, true);
 
             // Incomplete ctx: don't analyze further
             if ((redoLogRecord->flg & (FLG_MULTIBLOCKUNDOHEAD | FLG_MULTIBLOCKUNDOTAIL | FLG_MULTIBLOCKUNDOMID)) != 0)
+                return false;
+
+            // Field 3 (KTB redo) belongs to the head for row-DML and index undo: its KTBOP_F
+            // branch overwrites xid, and the fast-filter decision must see the final xid, the
+            // same one appendToTransaction* uses after a full decode. The write order is the
+            // same as in the single-pass decode (ktudb, ktub, ktbRedo, then the opc body).
+            if (redoLogRecord->opc == 0x0A16 || redoLogRecord->opc == 0x0B01) {
+                if (!RedoLogRecord::nextFieldOpt(ctx, redoLogRecord, fieldNum, fieldPos, fieldSize, 0x050114))
+                    return false;
+                // Field: 3
+                ktbRedo(ctx, redoLogRecord, fieldPos, fieldSize);
+            }
+
+            return true;
+        }
+
+        static void process0501Body(Ctx* ctx, RedoLogRecord* redoLogRecord) {
+            typePos fieldPos = 0;
+            typeField fieldNum = 0;
+            typeSize fieldSize = 0;
+
+            RedoLogRecord::nextField(ctx, redoLogRecord, fieldNum, fieldPos, fieldSize, 0x050112);
+            // Field: 1
+
+            if (!RedoLogRecord::nextFieldOpt(ctx, redoLogRecord, fieldNum, fieldPos, fieldSize, 0x050113))
                 return;
+            // Field: 2
 
             if (!RedoLogRecord::nextFieldOpt(ctx, redoLogRecord, fieldNum, fieldPos, fieldSize, 0x050114))
                 return;
@@ -510,7 +536,7 @@ namespace OpenLogReplicator {
 
             switch (redoLogRecord->opc) {
                 case 0x0A16:
-                    ktbRedo(ctx, redoLogRecord, fieldPos, fieldSize);
+                    // ktbRedo for field 3 was applied in process0501Head
 
                     if (!RedoLogRecord::nextFieldOpt(ctx, redoLogRecord, fieldNum, fieldPos, fieldSize, 0x050115))
                         return;
@@ -520,7 +546,7 @@ namespace OpenLogReplicator {
                     break;
 
                 case 0x0B01:
-                    ktbRedo(ctx, redoLogRecord, fieldPos, fieldSize);
+                    // ktbRedo for field 3 was applied in process0501Head
 
                     if (!RedoLogRecord::nextFieldOpt(ctx, redoLogRecord, fieldNum, fieldPos, fieldSize, 0x050116))
                         return;
@@ -549,6 +575,11 @@ namespace OpenLogReplicator {
                     kteoputrn(ctx, redoLogRecord, fieldPos, fieldSize);
                     break;
             }
+        }
+
+        static void process0501(Ctx* ctx, RedoLogRecord* redoLogRecord) {
+            if (process0501Head(ctx, redoLogRecord))
+                process0501Body(ctx, redoLogRecord);
         }
     };
 }

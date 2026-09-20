@@ -227,3 +227,16 @@ if (WITH_TESTS)
     olr_link_dependencies(test_epoch_nano)
     olr_add_test(test_epoch_nano test_epoch_nano)
 endif ()
+
+# Microbenchmark for the redo-vector decoders (bench/ff-bench.cpp). Built with the
+# tests so it does not rot; build a Release tree for meaningful timings, the Debug
+# build carries -O0 and sanitizers. Run: ./ff_bench [iterations] [columns].
+if (WITH_TESTS)
+    add_executable(ff_bench bench/ff-bench.cpp)
+    target_link_libraries(ff_bench
+            LibCommon LibReplicator LibLocales LibBuilder LibParser LibReader LibMetadata LibState LibWriter)
+    olr_link_dependencies(ff_bench)
+    # smoke runs: the default 8 columns and the 1-column edge of the synthetic record
+    olr_add_test(ff_bench_smoke ff_bench 1000 8)
+    olr_add_test(ff_bench_1col ff_bench 1000 1)
+endif ()

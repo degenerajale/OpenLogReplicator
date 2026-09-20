@@ -103,7 +103,8 @@ namespace OpenLogReplicator {
             RAW_COLUMN_DATA               = 1 << 15,
             EXPERIMENTAL_XMLTYPE          = 1 << 16,
             EXPERIMENTAL_JSON             = 1 << 17,
-            EXPERIMENTAL_NOT_NULL_MISSING = 1 << 18
+            EXPERIMENTAL_NOT_NULL_MISSING = 1 << 18,
+            FAST_FILTER                   = 1 << 19
         };
 
         enum class TRACE : unsigned int {
