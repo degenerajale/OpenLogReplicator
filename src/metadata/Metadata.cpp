@@ -279,8 +279,11 @@ namespace OpenLogReplicator {
     }
 
     void Metadata::buildMaps(std::vector<std::string>& msgs, std::unordered_map<typeObj, std::string>& tablesUpdated) const {
+        schema->tablesUnchanged.clear();
         for (const SchemaElement* element: schemaElements) {
-            if (ctx->isLogLevelAt(Ctx::LOG::DEBUG))
+            // Once per schema element per rebuild, and a rebuild happens on every committed
+            // dictionary change touching a tracked user: trace-level, not debug-level
+            if (unlikely(ctx->isTraceSet(Ctx::TRACE::SYSTEM)))
                 msgs.push_back("- creating table schema for owner: " + element->owner + " table: " + element->table + " options: " +
                         std::to_string(static_cast<uint>(element->options)));
 
@@ -288,6 +291,9 @@ namespace OpenLogReplicator {
                               element->condition, element->options, tablesUpdated, suppLogDbPrimary, suppLogDbAll, defaultCharacterMapId,
                               defaultCharacterNcharMapId);
         }
+        // The hashes belong to this rebuild only; a later rebuild on another path (checkpoint
+        // load, schema creation) must not compare against them
+        schema->touchedHashes.clear();
     }
 
     void Metadata::waitForWriter(Thread* t) {

@@ -118,6 +118,15 @@ namespace OpenLogReplicator {
             return (static_cast<uint>(options) & static_cast<uint>(OPTIONS::SYSTEM_TABLE)) != 0;
         }
 
+        // Hash of everything about the table that affects the messages OLR produces: columns (name,
+        // type, size, charset, flags), key, tags, LOB columns, data object ids. Used to tell a
+        // real definition change from a dictionary row update that changes nothing visible
+        // (statistics, partition maintenance), so the latter is not reported as "updated".
+        // Hash of the "updated metadata" text the table was built with: it also carries state that
+        // is not part of the definition (supplemental log advice), and definitionHash() covers it
+        uint64_t reportHash{0};
+        [[nodiscard]] uint64_t definitionHash() const;
+
         friend std::ostream& operator<<(std::ostream& os, const DbTable& table);
     };
 }

@@ -161,6 +161,73 @@ namespace OpenLogReplicator {
         conditionValue = Expression::buildCondition(newCondition, tokens, stack);
     }
 
+    uint64_t DbTable::definitionHash() const {
+        // FNV-1a over the fields below; no allocation, so it is cheap enough to run for every
+        // table rebuilt by a dictionary commit. A collision only mislabels a log line.
+        uint64_t hash = 14695981039346656037ULL;
+        const auto mix = [&hash](uint64_t value) {
+            for (int i = 0; i < 8; ++i) {
+                hash ^= (value >> (i * 8)) & 0xFF;
+                hash *= 1099511628211ULL;
+            }
+        };
+        const auto mixString = [&hash, &mix](const std::string& value) {
+            for (const char character: value) {
+                hash ^= static_cast<uint8_t>(character);
+                hash *= 1099511628211ULL;
+            }
+            mix(value.size());
+        };
+
+        mix(obj);
+        mix(dataObj);
+        mix(static_cast<uint>(options));
+        mixString(owner);
+        mixString(name);
+        mix(columns.size());
+        for (const DbColumn* column: columns) {
+            mix(static_cast<uint64_t>(column->col));
+            mix(static_cast<uint64_t>(column->segCol));
+            mix(static_cast<uint64_t>(column->guardSeg));
+            mixString(column->name);
+            mix(static_cast<uint64_t>(column->type));
+            mix(column->length);
+            mix(static_cast<uint64_t>(column->precision));
+            mix(static_cast<uint64_t>(column->scale));
+            mix(column->charsetId);
+            mix(static_cast<uint64_t>(column->numPk));
+            mix((static_cast<uint64_t>(column->nullable) << 0) | (static_cast<uint64_t>(column->hidden) << 1) |
+                (static_cast<uint64_t>(column->storedAsLob) << 2) | (static_cast<uint64_t>(column->systemGenerated) << 3) |
+                (static_cast<uint64_t>(column->nested) << 4) | (static_cast<uint64_t>(column->unused) << 5) |
+                (static_cast<uint64_t>(column->added) << 6) | (static_cast<uint64_t>(column->guard) << 7) |
+                (static_cast<uint64_t>(column->xmlType) << 8));
+        }
+        mix(pk.size());
+        for (const typeCol col: pk)
+            mix(static_cast<uint64_t>(col));
+        mix(tagCols.size());
+        for (const typeCol col: tagCols)
+            mix(static_cast<uint64_t>(col));
+        mix(lobs.size());
+        for (const DbLob* lob: lobs) {
+            mix(lob->lObj);
+            mix(lob->dataObj);
+            mix(static_cast<uint64_t>(lob->intCol));
+            mix(static_cast<uint64_t>(lob->col));
+            mix(lob->lobIndexes.size());
+            for (const typeDataObj index: lob->lobIndexes)
+                mix(index);
+            mix(lob->lobPartitions.size());
+            for (const typeDataObj partition: lob->lobPartitions)
+                mix(partition);
+        }
+        mix(tablePartitions.size());
+        for (const typeObj2 partition: tablePartitions)
+            mix(static_cast<uint64_t>(partition));
+        mix(reportHash);
+        return hash;
+    }
+
     std::ostream& operator<<(std::ostream& os, const DbTable& table) {
         os << "('" << table.owner << "'.'" << table.name << "', " << std::dec << table.obj << ", " << table.dataObj << ", " << table.cluCols << ", " <<
                 table.maxSegCol << ")\n";

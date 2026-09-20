@@ -740,18 +740,23 @@ namespace OpenLogReplicator {
         metadata->schema->dropUnusedMetadata(metadata->users, metadata->schemaElements, tablesDropped);
 
         metadata->buildMaps(msgs, tablesUpdated);
-        metadata->schema->resetTouched();
 
         for (const auto& msg: msgs)
-            ctx->info(0, msg);
+            ctx->logTrace(Ctx::TRACE::SYSTEM, msg);
         for (const auto& [obj, tableName]: tablesDropped) {
-            if (tablesUpdated.find(obj) != tablesUpdated.end())
+            if (tablesUpdated.find(obj) != tablesUpdated.end() || metadata->schema->tablesUnchanged.find(obj) != metadata->schema->tablesUnchanged.end())
                 continue;
             ctx->info(0, "dropped metadata: " + tableName);
         }
         for (const auto& [_, tableName]: tablesUpdated) {
             ctx->info(0, "updated metadata: " + tableName);
         }
+        // Rebuilt from a dictionary change that left the definition identical (statistics,
+        // partition maintenance): happens on every such commit, so trace-level only
+        if (unlikely(ctx->isTraceSet(Ctx::TRACE::SYSTEM)))
+            for (const auto& [_, tableName]: metadata->schema->tablesUnchanged)
+                ctx->logTrace(Ctx::TRACE::SYSTEM, "metadata rebuilt, unchanged: " + tableName);
+        metadata->schema->resetTouched();
 
         metadata->schema->updateXmlCtx();
     }

@@ -317,6 +317,7 @@ namespace OpenLogReplicator {
         for (const DbTable* table: tablesTouched) {
             msgs[table->obj] = table->owner + "." + table->name + " (dataobj: " + std::to_string(table->dataObj) + ", obj: " +
                     std::to_string(table->obj) + ") ";
+            touchedHashes[table->obj] = table->definitionHash();
             removeTableFromDict(table);
             delete table;
         }
@@ -473,6 +474,8 @@ namespace OpenLogReplicator {
     void Schema::resetTouched() {
         tablesTouched.clear();
         identifiersTouched.clear();
+        touchedHashes.clear();
+        tablesUnchanged.clear();
         sysCColPack.setTouched.clear();
         sysCDefPack.setTouched.clear();
         sysColPack.setTouched.clear();
@@ -797,6 +800,8 @@ namespace OpenLogReplicator {
                 tableTmp->maxSegCol = tableTmp->columns.size();
             }
 
+            // Reported with the table, and only if its definition changed
+            std::vector<std::pair<typeObj, std::string>> lobsUpdated;
             if (!DbTable::isSystemTable(options)) {
                 const SysLobKey sysLobKeyFirst(sysObj->obj, 0);
                 for (auto sysLobMapKeyIt = sysLobPack.mapKey.upper_bound(sysLobKeyFirst);
@@ -811,8 +816,8 @@ namespace OpenLogReplicator {
                     const typeObj lobDataObj = sysObjMapObjIt->second->dataObj;
 
                     if (ctx->isLogLevelAt(Ctx::LOG::DEBUG))
-                        tablesUpdated[sysLob->lObj] = "LOB: " + std::to_string(sysObj->obj) + ":" + std::to_string(sysLob->col) + ":" +
-                                std::to_string(sysLob->intCol) + ":" + std::to_string(lobDataObj) + ":" + std::to_string(sysLob->lObj);
+                        lobsUpdated.emplace_back(sysLob->lObj, "LOB: " + std::to_string(sysObj->obj) + ":" + std::to_string(sysLob->col) + ":" +
+                                std::to_string(sysLob->intCol) + ":" + std::to_string(lobDataObj) + ":" + std::to_string(sysLob->lObj));
 
                     lobTmp = new DbLob(tableTmp, sysLob->obj, lobDataObj, sysLob->lObj, sysLob->col,
                                        sysLob->intCol);
@@ -980,9 +985,21 @@ namespace OpenLogReplicator {
                            std::dec << sysObj->obj << " (" << key << ") ALWAYS;";
                 }
             }
-            tablesUpdated[sysObj->obj] = ss.str();
-
             tableTmp->setCondition(condition);
+
+            // Rebuilt with the same definition and report (statistics, partition maintenance, other
+            // dictionary rows that change nothing OLR emits or advises): not an update worth reporting
+            std::string report = ss.str();
+            tableTmp->reportHash = std::hash<std::string>{}(report);
+            const auto& hashIt = touchedHashes.find(sysObj->obj);
+            if (hashIt != touchedHashes.end() && hashIt->second == tableTmp->definitionHash()) {
+                tablesUnchanged[sysObj->obj] = std::move(report);
+            } else {
+                tablesUpdated[sysObj->obj] = std::move(report);
+                for (auto& [lObj, lobLine]: lobsUpdated)
+                    tablesUpdated[lObj] = std::move(lobLine);
+            }
+
             addTableToDict(tableTmp);
             tableTmp = nullptr;
         }
