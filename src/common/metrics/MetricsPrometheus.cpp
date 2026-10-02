@@ -242,6 +242,12 @@ namespace OpenLogReplicator {
                                                .Register(*registry);
         swapUsageMbGauge = &swapUsageMb->Add({});
 
+        // transaction_size_max_mb
+        transactionSizeMaxMb = &prometheus::BuildGauge().Name("transaction_size_max_mb")
+                                                        .Help("Largest transaction buffered since start in MB (data of tracked tables only)")
+                                                        .Register(*registry);
+        transactionSizeMaxMbGauge = &transactionSizeMaxMb->Add({});
+
         memoryUsedTotalMb = &prometheus::BuildGauge().Name("memory_used_total_mb")
                                                      .Help("Total used memory")
                                                      .Register(*registry);
@@ -577,6 +583,10 @@ namespace OpenLogReplicator {
     // swap_usage_mb
     void MetricsPrometheus::emitSwapUsageMb(int64_t gauge) {
         swapUsageMbGauge->Set(gauge);
+    }
+
+    void MetricsPrometheus::emitTransactionSizeMaxMb(int64_t gauge) {
+        transactionSizeMaxMbGauge->Set(gauge);
     }
 
     // transactions

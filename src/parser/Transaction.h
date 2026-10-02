@@ -78,6 +78,9 @@ namespace OpenLogReplicator {
         void rollbackLastOp(const Metadata* metadata, TransactionBuffer* transactionBuffer, const RedoLogRecord* redoLogRecord1,
                             const RedoLogRecord* redoLogRecord2);
         void rollbackLastOp(const Metadata* metadata, TransactionBuffer* transactionBuffer, const RedoLogRecord* redoLogRecord1);
+        [[nodiscard]] uint64_t getOpCodes() const {
+            return opCodes;
+        }
         void flush(Metadata* metadata, Builder* builder);
         void flushPartial(Metadata* metadata, Builder* builder);
         void purge(Ctx* ctx);

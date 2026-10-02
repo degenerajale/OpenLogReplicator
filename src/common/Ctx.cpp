@@ -752,6 +752,20 @@ namespace OpenLogReplicator {
             logTrace(TRACE::TRANSACTION, "swap memory stalled transaction xid: " + xid.toString());
     }
 
+    // Part of a transaction currently on disk, in MB (chunks are 1 MB). For logging only.
+    uint64_t Ctx::swappedMemoryMb(Thread* t, Xid xid) const {
+        uint64_t mb = 0;
+        {
+            t->contextSet(Thread::CONTEXT::MUTEX, Thread::REASON::CTX_SWAPPED_SIZE);
+            std::unique_lock const lck(swapMtx);
+            const auto& it = swapChunks.find(xid);
+            if (it != swapChunks.end() && it->second->swappedMin >= 0)
+                mb = static_cast<uint64_t>(it->second->swappedMax - it->second->swappedMin + 1) * MEMORY_CHUNK_SIZE_MB;
+        }
+        t->contextSet(Thread::CONTEXT::CPU);
+        return mb;
+    }
+
     uint64_t Ctx::swappedMemorySize(Thread* t, Xid xid) const {
         uint64_t ret;
         {

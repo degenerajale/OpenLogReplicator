@@ -128,6 +128,10 @@ namespace OpenLogReplicator {
         prometheus::Family<prometheus::Gauge>* swapUsageMb{nullptr};
         prometheus::Gauge* swapUsageMbGauge{nullptr};
 
+        // transaction_size_max_mb
+        prometheus::Family<prometheus::Gauge>* transactionSizeMaxMb{nullptr};
+        prometheus::Gauge* transactionSizeMaxMbGauge{nullptr};
+
         // transactions
         prometheus::Family<prometheus::Counter>* transactions{nullptr};
         prometheus::Counter* transactionsCommitOutCounter{nullptr};
@@ -229,6 +233,7 @@ namespace OpenLogReplicator {
 
         // swap_usage_mb
         void emitSwapUsageMb(int64_t gauge) override;
+        void emitTransactionSizeMaxMb(int64_t gauge) override;
 
         // transactions
         void emitTransactionsCommitOut(uint64_t counter) override;

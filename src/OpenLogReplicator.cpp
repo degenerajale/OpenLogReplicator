@@ -484,6 +484,7 @@ namespace OpenLogReplicator {
                     "redo-verify-delay-us",
                     "refresh-interval-us",
                     "state",
+                    "transaction-log-mb",
                     "transaction-max-mb"
                 };
                 Ctx::checkJsonFields(configFileName, sourceJson, sourceNames);
@@ -599,6 +600,9 @@ namespace OpenLogReplicator {
                     ctx->info(0, "will shutdown after committed DML in " + debugOwner + "." + debugTable);
                 }
             }
+
+            if (sourceJson.HasMember("transaction-log-mb"))
+                ctx->transactionLogSize = Ctx::getJsonFieldU64(configFileName, sourceJson, "transaction-log-mb") * 1024 * 1024;
 
             if (sourceJson.HasMember("transaction-max-mb")) {
                 const uint64_t transactionMaxMb = Ctx::getJsonFieldU64(configFileName, sourceJson, "transaction-max-mb");

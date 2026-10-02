@@ -139,14 +139,6 @@ _NOTE:_ Only valid for `online` type and mutually exclusive with `start-scn` and
 
 _NOTE:_ Valid only for `online` type.
 
-|`transaction-max-mb`
-|_integer_, min: 0, default: 0
-|Maximum transaction size in megabytes.
-Transactions larger than this are split.
-
-_CAUTION:_ Intended for debugging only.
-Splitting assumes the transaction is committed; partial or rolled-back operations may be emitted when splitting.
-
 |===
 
 [NOTE]

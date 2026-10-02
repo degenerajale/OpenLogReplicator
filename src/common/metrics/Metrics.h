@@ -130,6 +130,9 @@ namespace OpenLogReplicator {
         // swap_usage_mb
         virtual void emitSwapUsageMb(int64_t gauge) = 0;
 
+        // transaction_size_max_mb
+        virtual void emitTransactionSizeMaxMb(int64_t gauge) = 0;
+
         // transactions
         virtual void emitTransactionsCommitOut(uint64_t counter) = 0;
         virtual void emitTransactionsRollbackOut(uint64_t counter) = 0;

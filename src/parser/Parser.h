@@ -85,6 +85,7 @@ namespace OpenLogReplicator {
         // same broken record shape does not flood the log; see reportIgnoredError()
         std::unordered_map<std::string, uint64_t> ignoredErrors;
         void reportIgnoredError(int code, const std::string& msg);
+        void noteTransactionSize(const Transaction* transaction);
 
         uint8_t* lwnChunks[MAX_LWN_CHUNKS]{};
         LwnMember* lwnMembers[MAX_RECORDS_IN_LWN + 1]{};

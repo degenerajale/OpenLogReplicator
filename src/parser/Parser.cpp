@@ -121,6 +121,26 @@ namespace OpenLogReplicator {
             ctx->warning(60013, "error " + key + " ignored " + std::to_string(count) + " times in this redo log so far");
     }
 
+    // Once per commit or rollback of a transaction that buffered data of tracked tables. The common
+    // case is two compares; the gauge is set only when a new maximum is reached, the swap lookup
+    // and the log line only for transactions above transaction-log-mb.
+    void Parser::noteTransactionSize(const Transaction* transaction) {
+        if (transaction->size > transactionBuffer->transactionSizeMaxSeen) {
+            transactionBuffer->transactionSizeMaxSeen = transaction->size;
+            if (ctx->metrics != nullptr)
+                ctx->metrics->emitTransactionSizeMaxMb(static_cast<int64_t>((transaction->size + (1024 * 1024) - 1) / (1024 * 1024)));
+        }
+
+        if (ctx->transactionLogSize == 0 || transaction->size < ctx->transactionLogSize)
+            return;
+
+        const uint64_t swappedMb = ctx->swappedMemoryMb(ctx->parserThread, transaction->xid);
+        ctx->info(0, std::string("large transaction ") + (transaction->rollback ? "rolled back" : "committed") + ": xid " +
+                  transaction->xid.toString() + ", commit scn " + transaction->commitScn.toString() + ", " +
+                  std::to_string(transaction->size / (1024 * 1024)) + " MB buffered, " + std::to_string(transaction->getOpCodes()) +
+                  " operations, " + std::to_string(swappedMb) + " MB on disk" + (transaction->begin ? "" : ", begin not seen"));
+    }
+
     void Parser::freeLwn() {
         while (lwnAllocated > 1) {
             ctx->freeMemoryChunk(ctx->parserThread, Ctx::MEMORY::PARSER, lwnChunks[--lwnAllocated]);
@@ -981,6 +1001,8 @@ namespace OpenLogReplicator {
 
         if ((transaction->commitScn > metadata->firstDataScn && !transaction->system) ||
             (transaction->commitScn > metadata->firstSchemaScn && transaction->system)) {
+            if (transaction->size > 0)
+                noteTransactionSize(transaction);
             if (transaction->begin) {
                 transaction->flush(metadata, builder);
                 ctx->parserThread->contextSet(Thread::CONTEXT::CPU);

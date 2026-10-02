@@ -171,6 +171,10 @@ run_test no-topics "$WORKDIR/no-topics.json" any 'adding target: KAFKA'
 sed 's/"alias": "SOURCE",/"alias": "SOURCE",\n    "flags": 2,/' "$WORKDIR/topics-good.json" >"$WORKDIR/topics-schemaless.json"
 run_test topics-schemaless "$WORKDIR/topics-schemaless.json" any 'Kafka topic mapping: HR.EMPLOYEES -> hr_employees'
 
+# transaction-log-mb: accepted in the source block, 0 disables the large-transaction log line
+sed 's/"alias": "SOURCE",/"alias": "SOURCE",\n    "transaction-log-mb": 0,/' "$WORKDIR/topics-good.json" >"$WORKDIR/txlog-0.json"
+run_test txlog-0 "$WORKDIR/txlog-0.json" any 'Kafka topic mapping: HR.EMPLOYEES -> hr_employees'
+
 # read-parallel: a small memory block (max-mb 32 derives a 4 MB read buffer) must still be
 # accepted when read-parallel is not set (default 1), and rejected when set too high
 sed 's/"memory": {"min-mb": 64, "max-mb": 1024}/"memory": {"min-mb": 32, "max-mb": 32}/' "$WORKDIR/topics-good.json" >"$WORKDIR/rp-small-default.json"

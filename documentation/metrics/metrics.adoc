@@ -167,6 +167,11 @@ Types:
 |
 | Current swap usage in megabytes.
 
+| transaction_size_max_mb
+| gauge
+|
+| Largest transaction buffered since start, in megabytes: the changes to tracked tables it held when it committed or rolled back. Transactions above `transaction-log-mb` are also logged individually with their xid.
+
 | transactions
 | counter
 | type={commit,rollback},filter={out,partial,skip}

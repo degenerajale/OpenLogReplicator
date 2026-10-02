@@ -140,6 +140,18 @@ Prefer direct IO instead of relying on double reads.
 |_integer_, min: 0, default: 10000000
 |Microseconds between attempts to refresh the list of redo log groups while reading online redo logs.
 
+|`transaction-log-mb`
+|_integer_, min: 0, default: 1024
+|Log an info message for every transaction that buffered at least this many megabytes of tracked-table changes when it commits or rolls back: xid, commit SCN, size, number of operations and how much of it is swapped to disk (`large transaction committed: xid 0x0030.021.01c07bdf, …`).
+`0` disables the message. Use it to find the jobs behind swapping and lag spikes; the largest size is also in the `transaction_size_max_mb` metric.
+
+|`transaction-max-mb`
+|_integer_, min: 0, default: 0
+|Maximum transaction size in megabytes.
+A transaction that grows beyond this is dropped: none of its changes are emitted. With flag `0x0400` its commit is reported by warning 60011 and a `"p"` partial-commit marker, so a consumer can recover it.
+
+_CAUTION:_ Intended for debugging only.
+
 |===
 
 [NOTE]

@@ -254,6 +254,9 @@ namespace OpenLogReplicator {
         uint64_t stopCheckpoints{0};
         uint64_t stopTransactions{0};
         typeTransactionSize transactionSizeMax{0};
+        // Committed (or rolled back) transactions at least this large are logged with their xid,
+        // size and swapped part; 0 disables (transaction-log-mb)
+        uint64_t transactionLogSize{1024ULL * 1024 * 1024};
         std::unordered_map<LobId, Xid> lobIdToXidMap;
         Thread* parserThread{nullptr};
         Thread* writerThread{nullptr};
@@ -632,6 +635,7 @@ namespace OpenLogReplicator {
         [[nodiscard]] uint8_t* getMemoryChunk(Thread* t, MEMORY module, bool swap = false);
         void freeMemoryChunk(Thread* t, MEMORY module, uint8_t* chunk);
         void swappedMemoryInit(Thread* t, Xid xid);
+        [[nodiscard]] uint64_t swappedMemoryMb(Thread* t, Xid xid) const;
         [[nodiscard]] uint64_t swappedMemorySize(Thread* t, Xid xid) const;
         [[nodiscard]] uint8_t* swappedMemoryGet(Thread* t, Xid xid, int64_t index);
         void swappedMemoryRelease(Thread* t, Xid xid, int64_t index);
