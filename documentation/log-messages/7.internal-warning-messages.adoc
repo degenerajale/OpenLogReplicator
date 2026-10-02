@@ -25,8 +25,6 @@ Report these if encountered.
 
 ==== code 70007: "trying to confirm an empty message"
 
-==== code 70008: "Kafka: <number> delivery failed: <message>"
-
 ==== code 70009: "Kafka: <message>, reason: <message>"
 
 ==== code 70010: "unknown undo OP: <number>, opc: <number>"

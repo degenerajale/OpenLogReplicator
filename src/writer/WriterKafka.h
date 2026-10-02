@@ -31,6 +31,11 @@ namespace OpenLogReplicator {
 
     class WriterKafka final : public Writer {
     protected:
+        // How long the startup topic check waits for the broker to answer a metadata request, and
+        // the steps it waits in while no broker connection is up (librdkafka's wait does not end on
+        // a signal; Ctrl-C is checked between)
+        static constexpr int METADATA_TIMEOUT_MS{10000};
+        static constexpr int METADATA_STEP_MS{500};
         std::string topic;
         const TopicMap* topicMap;
         char errStr[512]{};

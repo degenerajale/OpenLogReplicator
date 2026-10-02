@@ -405,3 +405,18 @@ Check that the topic name is valid and the Kafka producer configuration is corre
 
 The read buffer must hold the chunks that are in flight plus the ones the parser has not freed yet.
 Increase `memory` -> `read-buffer-max-mb` to at least `read-parallel + 2`, or lower `read-parallel`.
+
+==== code 10075: "Kafka topic \"<topic>\"[, \"<topic>\" ...] does not exist, create it before starting (or enable auto.create.topics.enable on the broker)"
+
+At startup the Kafka writer checks the configured topics (the default `topic` and every entry of `topics`) with one metadata request to the broker. The broker still reported the listed topics as unknown after being asked again for `topic.metadata.propagation.max.ms` (a librdkafka property, 30 seconds by default; a topic that is being created can be reported unknown for a while).
+Create the topic, or correct its name in the configuration.
+
+==== code 10076: "Kafka: message <number> to topic <topic> was not delivered: <message>, stopping replication"
+
+librdkafka gave up delivering a message after retrying for `message.timeout.ms` (a producer property, 5 minutes by default), for example because the broker was unreachable for that long or the topic was deleted.
+Replication stops instead of continuing with a gap in the output. Fix the cause and restart; with checkpoints the undelivered messages are produced again.
+
+==== code 10077: "Kafka: producing message <number> to topic <topic> failed: <message>, stopping replication"
+
+librdkafka rejected the message when it was handed over (other than a full queue, which is retried), for example because it exceeds the broker's size limit.
+Replication stops instead of continuing with a gap in the output.

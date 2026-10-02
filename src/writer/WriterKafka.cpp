@@ -17,6 +17,11 @@ You should have received a copy of the GNU Affero General Public
 License along with this program; see the file LICENSE;
 If not, see <http://www.gnu.org/licenses/>. */
 
+#include <algorithm>
+#include <chrono>
+#include <cstdlib>
+#include <map>
+#include <thread>
 #include "../builder/Builder.h"
 #include "../common/TopicMap.h"
 #include "../common/exception/ConfigurationException.h"
@@ -77,6 +82,14 @@ namespace OpenLogReplicator {
             if (rd_kafka_conf_set(conf, name.c_str(), value.c_str(), errStr, sizeof(errStr)) != RD_KAFKA_CONF_OK)
                 throw RuntimeException(10059, "Kafka message: " + std::string(errStr));
 
+        // librdkafka waits this long before it treats a topic the broker does not report as missing
+        // (topic creation takes a while to reach every broker); the startup check waits the same
+        char propagationStr[32];
+        size_t propagationSize = sizeof(propagationStr);
+        int64_t propagationMs = 30000;
+        if (rd_kafka_conf_get(conf, "topic.metadata.propagation.max.ms", propagationStr, &propagationSize) == RD_KAFKA_CONF_OK)
+            propagationMs = std::strtoll(propagationStr, nullptr, 10);
+
         rd_kafka_conf_set_opaque(conf, this);
         rd_kafka_conf_set_dr_msg_cb(conf, dr_msg_cb);
         rd_kafka_conf_set_error_cb(conf, error_cb);
@@ -94,14 +107,96 @@ namespace OpenLogReplicator {
                 throw RuntimeException(10073, "Kafka failed to create topic \"" + topicName + "\", message: " + std::string(errStr));
             rkts.push_back(rkt);
         }
+
+        // Check that every topic exists: a misspelled or missing topic would otherwise only show up
+        // when its first message fails, which for a rarely changed table can be days later. One
+        // metadata request covers all topics (the handles above make them locally known). A topic
+        // that is still being created or propagated is reported unknown for a while, so an unknown
+        // topic is asked about again until topic.metadata.propagation.max.ms has passed; only the
+        // answer to the last request counts. Other topic errors (authorization) do not go away by
+        // waiting and are reported at once. A broker that does not answer is not fatal: delivery
+        // failures stop replication later anyway.
+        const std::vector<std::string>& topicNames = topicMap->names();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(propagationMs);
+        std::map<std::string, std::pair<rd_kafka_resp_err_t, int>> topicState;
+        const auto unknownTopic = [&topicState](const std::string& topicName) {
+            const auto it = topicState.find(topicName);
+            return it == topicState.end() || it->second.first == RD_KAFKA_RESP_ERR_UNKNOWN_TOPIC_OR_PART ||
+                    it->second.first == RD_KAFKA_RESP_ERR__UNKNOWN_TOPIC;
+        };
+        bool answered = false;
+        for (;;) {
+            const rd_kafka_metadata_t* topicMetadata = nullptr;
+            rd_kafka_resp_err_t err;
+            const auto requestDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(METADATA_TIMEOUT_MS);
+            bool sent = false;
+            for (;;) {
+                // While no broker connection is up, the call returns _TRANSPORT at the end of its
+                // wait and the connection attempts go on, so it is called in steps. Once a request
+                // went out unanswered (_TIMED_OUT) the broker is slow, not absent: each call sends
+                // a new request, so the next one waits for the rest of the time
+                const int64_t remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        requestDeadline - std::chrono::steady_clock::now()).count();
+                err = rd_kafka_metadata(rk, 0, nullptr, &topicMetadata,
+                                        static_cast<int>(std::clamp<int64_t>(remainingMs, 1, sent ? METADATA_TIMEOUT_MS : METADATA_STEP_MS)));
+                if (err == RD_KAFKA_RESP_ERR__TIMED_OUT)
+                    sent = true;
+                if ((err != RD_KAFKA_RESP_ERR__TIMED_OUT && err != RD_KAFKA_RESP_ERR__TRANSPORT) || ctx->softShutdown ||
+                    std::chrono::steady_clock::now() >= requestDeadline)
+                    break;
+            }
+            if (err != RD_KAFKA_RESP_ERR_NO_ERROR) {
+                // An earlier answer is not used: the topics it missed may exist by now
+                answered = false;
+                if (!ctx->softShutdown)
+                    ctx->warning(60038, "Kafka: could not check the topics: " + std::string(rd_kafka_err2str(err)));
+                break;
+            }
+            answered = true;
+            topicState.clear();
+            for (int i = 0; i < topicMetadata->topic_cnt; ++i)
+                topicState[topicMetadata->topics[i].topic] = {topicMetadata->topics[i].err, topicMetadata->topics[i].partition_cnt};
+            rd_kafka_metadata_destroy(topicMetadata);
+
+            const auto now = std::chrono::steady_clock::now();
+            if (std::none_of(topicNames.begin(), topicNames.end(), unknownTopic) || now >= deadline || ctx->softShutdown)
+                break;
+            std::this_thread::sleep_for(std::min<std::chrono::steady_clock::duration>(std::chrono::milliseconds(500), deadline - now));
+        }
+
+        // Stopped (Ctrl-C) while waiting for a topic: nothing to report
+        if (answered && !ctx->softShutdown) {
+            std::string missing;
+            for (const std::string& topicName: topicNames) {
+                if (unknownTopic(topicName)) {
+                    missing += (missing.empty() ? "\"" : ", \"") + topicName + "\"";
+                    continue;
+                }
+                const auto& [topicErr, partitions] = topicState.find(topicName)->second;
+                if (topicErr != RD_KAFKA_RESP_ERR_NO_ERROR)
+                    ctx->warning(60038, "Kafka: could not check topic \"" + topicName + "\": " + rd_kafka_err2str(topicErr));
+                else
+                    ctx->info(0, "Kafka topic \"" + topicName + "\": " + std::to_string(partitions) + " partition" + (partitions == 1 ? "" : "s"));
+            }
+            if (!missing.empty())
+                throw RuntimeException(10075, "Kafka topic " + missing + " does not exist, create it before starting (or enable "
+                                       "auto.create.topics.enable on the broker)");
+        }
         streaming = true;
     }
 
     void WriterKafka::dr_msg_cb(rd_kafka_t * rkCb __attribute__((unused)), const rd_kafka_message_t * rkMessage, void*opaque __attribute__((unused))) {
         auto* msg = static_cast<BuilderMsg*>(rkMessage->_private);
-        auto* writer = static_cast<Writer*>(opaque);
+        auto* writer = static_cast<WriterKafka*>(opaque);
         if (rkMessage->err != 0) {
-            writer->ctx->warning(70008, "Kafka: " + std::to_string(msg->id) + " delivery failed: " + rd_kafka_err2str(rkMessage->err));
+            // librdkafka has retried until message.timeout.ms: the message will never reach the
+            // topic. Continuing would leave a gap in the output, and the unconfirmed message would
+            // stop the checkpoint and eventually the queue, so stop with an error instead.
+            if (!writer->ctx->hardShutdown) {
+                writer->ctx->error(10076, "Kafka: message " + std::to_string(msg->id) + " to topic " + rd_kafka_topic_name(rkMessage->rkt) +
+                                   " was not delivered: " + rd_kafka_err2str(rkMessage->err) + ", stopping replication");
+                writer->ctx->stopHard();
+            }
         } else {
             writer->confirmMessage(msg);
         }
@@ -151,13 +246,17 @@ namespace OpenLogReplicator {
                                         RD_KAFKA_VTYPE_END);
 
             if (err != 0) {
-                ctx->warning(60031, "failed to produce to topic " + topicMap->names()[msg->topicId] + ", message: " + rd_kafka_err2str(err));
-
                 if (err == RD_KAFKA_RESP_ERR__QUEUE_FULL) {
+                    ctx->warning(60031, "failed to produce to topic " + topicMap->names()[msg->topicId] + ", message: " + rd_kafka_err2str(err));
                     ctx->warning(60031, "queue, full, sleeping " + std::to_string(ctx->pollIntervalUs / 1000) + " ms, then retrying");
                     rd_kafka_poll(rk, static_cast<int>((ctx->pollIntervalUs / 1000)));
                     continue;
                 }
+                // Any other error means librdkafka refused the message: it would be neither sent nor
+                // confirmed, leaving a gap and stalling the checkpoint
+                ctx->error(10077, "Kafka: producing message " + std::to_string(msg->id) + " to topic " + topicMap->names()[msg->topicId] +
+                           " failed: " + rd_kafka_err2str(err) + ", stopping replication");
+                ctx->stopHard();
             }
             break;
         }

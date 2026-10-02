@@ -59,6 +59,8 @@ Keys are matched against the data dictionary names exactly, so a quoted identifi
 
 _CAUTION:_ Topics are not created automatically.
 Every mapped topic must already exist, unless the broker is configured to auto-create topics.
+At startup the topics (the default `topic` and every entry here) are checked with one request to the broker: a topic the broker still does not report after `topic.metadata.propagation.max.ms` (a librdkafka property, 30 seconds by default) stops startup (error 10075), and the number of partitions of each is logged.
+A message that cannot be delivered stops replication with an error instead of leaving a gap: when librdkafka gives up after `message.timeout.ms` (error 10076), or rejects the message outright (error 10077).
 
 _NOTE:_ Valid only for `kafka` writer type.
 
